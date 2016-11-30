@@ -287,12 +287,13 @@ int main(int argc, char **argv) {
     float *fc2   = allocate<float>(fc2dims);
     loadModel(conv1, conv2, fc1, fc2);
     
-    // Perform foward opertion
+    // allocate memory for output and clear it
     int *out = zeros<int>(FLAGS_batch_size);
     
     // get start time
     const auto start = now();
     
+    // Perform foward operation
     forward_operation(x, conv1, conv2, fc1, fc2, out);
     
     // get end time
