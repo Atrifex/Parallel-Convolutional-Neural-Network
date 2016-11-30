@@ -49,3 +49,6 @@ Debug
 build-*/
 *.log
 README.pdf
+
+# stupid shit
+*.projectile
