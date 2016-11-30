@@ -108,8 +108,6 @@ __global__ void conv_forward_kernel(float *deviceInput, float *deviceMask, float
     tileYCoord = mapID / IOLogistics[3] + threadIdx.y;
     float outputTotal = 0.0f;
     
-    int sampleIdx, outputMapYPos, outputMapXPos, outputMapIdx;
-    
     for (c = 0;  c < IOLogistics[0]; c++) {
         for (p = 0; p < IOLogistics[2]; p++){
             for (q = 0; q < IOLogistics[1]; q++){
