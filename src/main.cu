@@ -18,6 +18,7 @@
 #define NUM_DIGITS 10
 
 #define TILE_WIDTH 16
+#define IO_LOGISTICS_SIZE 9
 
 static int FLAGS_batch_size = 10000;
 static std::string FLAGS_testdata{};
@@ -97,7 +98,7 @@ static void loadModel(float *conv1, float *conv2, float *fc1, float *fc2) {
 }
 
 // CUDA kernel for forward convolution path
-__global__ void conv_forward_kernel(float *deviceInput, float *deviceMask, float *deviceOutput, int IOLogistics[5])
+__global__ void conv_forward_kernel(float *deviceInput, float *deviceMask, float *deviceOutput, int IOLogistics[IO_LOGISTICS_SIZE])
 {
 	
 }
@@ -215,8 +216,12 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
      *  position 2: mask height
      *  position 3: number of horizontal tiles per output map
      *  position 4: number of vertical tiles per output map
+     *  position 5: Number of samples
+     *  position 6: Input map height
+     *  position 7: Input map width
+     *  position 8: Number of output maps
      */
-    int IOLogistics[5] = {xdims[3], conv1dims[1], conv1dims[0], (outputMapWidth-1)/TILE_WIDTH + 1, (outputMapHeight-1)/TILE_WIDTH + 1};
+    int IOLogistics[IO_LOGISTICS_SIZE] = {xdims[3], conv1dims[1], conv1dims[0], (outputMapWidth-1)/TILE_WIDTH + 1, (outputMapHeight-1)/TILE_WIDTH + 1, xdims[0], (xdims[1] - conv1dims[0] + 1), (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
     
     /*
      * This array stores:
@@ -233,12 +238,12 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
    	cudaMalloc((void**)&deviceForwardConvInput1, xdims[2]*xdims[1]*conv1dims[2]*sizeof(float));
    	cudaMalloc((void**)&deviceMask1, IOLogistics[1]*IOLogistics[2]*sizeof(float));
    	cudaMalloc((void**)&deviceForwardConvOutput1, outputMapWidth*outputMapHeight*conv1dims[3]*sizeof(float));
-   	cudaMalloc((void**)&deviceIOLogistics, 5*sizeof(int));
+   	cudaMalloc((void**)&deviceIOLogistics, IO_LOGISTICS_SIZE*sizeof(int));
 
     // perform memcopy for the first forward convolution
     cudaMemcpy(deviceMask1, conv1, IOLogistics[1]*IOLogistics[2]*sizeof(float),cudaMemcpyHostToDevice);
     cudaMemcpy(deviceForwardConvInput1, x, xdims[2]*xdims[1]*conv1dims[2]*sizeof(float)*sizeof(float),cudaMemcpyHostToDevice);
-    cudaMemcpy(deviceIOLogistics, IOLogistics, 5*sizeof(int),cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceIOLogistics, IOLogistics, IO_LOGISTICS_SIZE*sizeof(int),cudaMemcpyHostToDevice);
 
     /* 
      * Set grid and block dimensions for first kernel call. Each thread computes one element of one output feature map.
