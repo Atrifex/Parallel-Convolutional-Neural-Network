@@ -18,7 +18,7 @@
 #define NUM_DIGITS 10
 
 #define TILE_WIDTH 16
-#define IO_LOGISTICS_SIZE 9
+#define IO_LOGISTICS_SIZE 10
 
 static int FLAGS_batch_size = 10000;
 static std::string FLAGS_testdata{};
@@ -211,7 +211,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
     
     /*
      * This array stores:
-     *  position 0: NUM_CHANNELS
+     *  position 0: number of channels
      *  position 1: mask width
      *  position 2: mask height
      *  position 3: number of horizontal tiles per output map
@@ -220,8 +220,9 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
      *  position 6: Input map height
      *  position 7: Input map width
      *  position 8: Number of output maps
+     *  position 9: Number of input maps
      */
-    int IOLogistics[IO_LOGISTICS_SIZE] = {xdims[3], conv1dims[1], conv1dims[0], (outputMapWidth-1)/TILE_WIDTH + 1, (outputMapHeight-1)/TILE_WIDTH + 1, xdims[0], (xdims[1] - conv1dims[0] + 1), (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
+    int IOLogistics[IO_LOGISTICS_SIZE] = {xdims[3], conv1dims[1], conv1dims[0], (outputMapWidth-1)/TILE_WIDTH + 1, (outputMapHeight-1)/TILE_WIDTH + 1, xdims[0], (xdims[1] - conv1dims[0] + 1), (xdims[2] - conv1dims[1] + 1), conv1dims[3], conv1dims[2]};
     
     /*
      * This array stores:
