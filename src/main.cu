@@ -100,7 +100,27 @@ static void loadModel(float *conv1, float *conv2, float *fc1, float *fc2) {
 // CUDA kernel for forward convolution path
 __global__ void conv_forward_kernel(float *deviceInput, float *deviceMask, float *deviceOutput, int IOLogistics[IO_LOGISTICS_SIZE])
 {
-	
+    int tileXIdx, tileYIdx, tileXCoord, tileYCoord, c, p, q, mapID;
+    tileXIdx = blockIdx.x;
+    tileYIdx = blockIdx.y;
+    mapID = blockIdx.z;
+    tileXCoord = mapID % IOLogistics[3] + threadIdx.x;
+    tileYCoord = mapID / IOLogistics[3] + threadIdx.y;
+    float outputTotal = 0.0f;
+    
+    int sampleIdx, outputMapYPos, outputMapXPos, outputMapIdx;
+    
+    for (c = 0;  c < IOLogistics[0]; c++) {
+        for (p = 0; p < IOLogistics[2]; p++){
+            for (q = 0; q < IOLogistics[1]; q++){
+                int inputOffset = (tileXIdx*IOLogistics[4]*IOLogistics[3]*IOLogistics[0] + (tileYCoord + p)*IOLogistics[3]*IOLogistics[0] + (tileXCoord + q)*IOLogistics[0] + c);
+                int maskOffset = p*IOLogistics[1]* IOLogistics[9]*IOLogistics[8] + q*IOLogistics[9]*IOLogistics[8] + c*IOLogistics[8] + tileYIdx;
+                outputTotal += deviceInput[inputOffset] * deviceMask[maskOffset];
+            }
+        }
+    }
+    int outputOffset = ((tileXIdx*IOLogistics[4] + tileYCoord)*IOLogistics[3] + tileXCoord)*IOLogistics[0] + tileYIdx;
+    deviceOutput[outputOffset] = outputTotal;	
 }
 
 // From book chapter Figure 16.4
