@@ -19,6 +19,7 @@
 
 #define TILE_WIDTH 16
 #define IO_LOGISTICS_SIZE 10
+#define BLOCK_SIZE 16
 
 static int FLAGS_batch_size = 10000;
 static std::string FLAGS_testdata{};
@@ -37,11 +38,11 @@ static int fc2dims[]   = {128, 10};
 static int loadData(float *x, float *y) {
     // Open the data file
     const auto file_id = H5Fopen(FLAGS_testdata.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
-    
+
     // Open the dataset x and y
     const auto x_id = H5Dopen2(file_id, "/x", H5P_DEFAULT);
     const auto y_id = H5Dopen2(file_id, "/y", H5P_DEFAULT);
-    
+
     // Get the dataset x dimensions
     const auto xspace = H5Dget_space(x_id);
     const auto xndims = H5Sget_simple_extent_ndims(xspace);
@@ -55,18 +56,18 @@ static int loadData(float *x, float *y) {
     }
     std::cout << "input dimensions = " << input_dims[0] << " x " << input_dims[1]
               << " x " << input_dims[2] << " x " << input_dims[3] << "\n";
-    
+
     // Read the dataset x and y
     check_success(H5Dread(x_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, x));
     check_success(H5Dread(y_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, y));
-    
+
     // Close the dataset x and y
     check_success(H5Dclose(x_id));
     check_success(H5Dclose(y_id));
-    
+
     // Close the file
     check_success(H5Fclose(file_id));
-    
+
     // return success
     return 0;
 }
@@ -74,25 +75,25 @@ static int loadData(float *x, float *y) {
 static void loadModel(float *conv1, float *conv2, float *fc1, float *fc2) {
     // Open the model file
     const auto file_id = H5Fopen(FLAGS_model.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
-    
+
     // Open the dataset
     const auto conv1_id = H5Dopen2(file_id, "/conv1", H5P_DEFAULT);
     const auto conv2_id = H5Dopen2(file_id, "/conv2", H5P_DEFAULT);
     const auto fc1_id   = H5Dopen2(file_id, "/fc1", H5P_DEFAULT);
     const auto fc2_id   = H5Dopen2(file_id, "/fc2", H5P_DEFAULT);
-    
+
   // Read the dataset
     check_success(H5Dread(conv1_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, conv1));
     check_success(H5Dread(conv2_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, conv2));
     check_success(H5Dread(fc1_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, fc1));
     check_success(H5Dread(fc2_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, fc2));
-    
+
     // Close the dataset x and y
     check_success(H5Dclose(conv1_id));
     check_success(H5Dclose(conv2_id));
     check_success(H5Dclose(fc1_id));
     check_success(H5Dclose(fc2_id));
-    
+
     // Close the file
     check_success(H5Fclose(file_id));
 }
@@ -119,24 +120,29 @@ __global__ void conv_forward_kernel(float *deviceInput, float *deviceMask, float
     int filter_w   = IOLogistics[1];
     int in_channel = IOLogistics[9];
 
-    int n, m, h, w, c, p, q;
-    n = blockIdx.x;
-    m = blockIdx.y;
-    h = (blockIdx.z / (IOLogistics[4]))*TILE_WIDTH + threadIdx.y;
-    w = (blockIdx.z % (IOLogistics[3]))*TILE_WIDTH + threadIdx.x;
+    int out_h = (IOLogistics[6] - IOLogistics[2] + 1);
+    int out_w = (IOLogistics[7] - IOLogistics[1] + 1);
 
-  
+    int n, m, z, h, w, c, p, q;
+    n = blockIdx.x*blockDim.x + threadIdx.x;
+    m = blockIdx.y*blockDim.y + threadIdx.y;
+    z = blockIdx.z*blockDim.z + threadIdx.z;
+
+    h = (z / out_h);
+    w = (z % out_w);
+
+
     float acc = 0.0f;
     for (int p : range(0, filter_h)) {
         for (int q : range(0, filter_w)) {
             for (int c : range(0, in_channel)) {
-                int xoffset = n *IOLogistics[6]*IOLogistics[7]*IOLogistics[0] + (h + p)*IOLogistics[7]*IOLogistics[0] + (w + q)*IOLogistics[0] + c;
-                int woffset = p * filter_w * in_channel * IOLogistics[8] + q*in_channel*IOLogistics[8] + c*IOLogistics[8] + m;
+                int xoffset = n*IOLogistics[6]*IOLogistics[7]*IOLogistics[9] + (h + p)*IOLogistics[7]*IOLogistics[9] + (w + q)*IOLogistics[9] + c;
+                int woffset = p*filter_w*in_channel*IOLogistics[8] + q*in_channel*IOLogistics[8] + c*IOLogistics[8] + m;
                 acc += deviceInput[xoffset]*deviceMask[woffset];
             }
         }
     }
-    int yoffset = ((n *(IOLogistics[6]-IOLogistics[2] + 1) + h) * (IOLogistics[7]-IOLogistics[1] + 1) + w)*IOLogistics[8] + m;
+    int yoffset = n*out_h*out_w*IOLogistics[8] + h*out_w*IOLogistics[8]+ w*IOLogistics[8] + m;
     deviceOutput[yoffset] = acc;
 }
 
@@ -146,7 +152,7 @@ static void conv_forward_valid(const float *X, const int xdims[4], const float *
     const auto filter_h   = wdims[0];
     const auto filter_w   = wdims[1];
     const auto in_channel = wdims[2];
-    
+
     for (const auto i : range(0, ydims[0])) {
         for (const auto m : range(0, ydims[3])) {
             for (const auto w : range(0, ydims[2])) {
@@ -234,7 +240,7 @@ static void argmax(const float *X, const int xdims[2], int *Y) {
 // + relu
 void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
                        float *fc2, int *out) {
-    
+
     // Memory instantiated on the GPU to hold input data, convolution mask, output data
     float * deviceForwardConvInput1, * deviceMask1, * deviceForwardConvOutput1;
     float * deviceForwardConvInput2, * deviceMask2, * deviceForwardConvOutput2;
@@ -261,7 +267,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     // Allocate host memory for all of the output maps generated by convolution 1
    	float * conv1Output = new float[IOLogistics[5]*outputMapWidth * outputMapHeight * conv1dims[3]*xdims[3]];
-   	
+
    	// Allocate device memory
    	check_success(cudaMalloc((void**)&deviceMask1, xdims[3]*IOLogistics[1]*IOLogistics[2]*sizeof(float)));
    	check_success(cudaMalloc((void**)&deviceForwardConvInput1, IOLogistics[5]*xdims[3]*xdims[2]*xdims[1]*conv1dims[2]*sizeof(float)));
@@ -273,7 +279,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     check_success(cudaMemcpy(deviceForwardConvInput1, x, IOLogistics[5]*xdims[3]*xdims[2]*xdims[1]*conv1dims[2]*sizeof(float),cudaMemcpyHostToDevice));
     check_success(cudaMemcpy(deviceIOLogistics, IOLogistics, IO_LOGISTICS_SIZE*sizeof(int),cudaMemcpyHostToDevice));
 
-    /* 
+    /*
      * Set grid and block dimensions for first kernel call. Each thread computes one element of one output feature map.
      * Each thread block computes output map elements for one tile.
      * Blocks are layered in a three-dimensional grid.
@@ -281,8 +287,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
      * gridDim.y: Number of output feature maps
      * gridDim.z: Number of tiles per output map
      */
-    dim3 blockDimConv1(TILE_WIDTH, TILE_WIDTH, 1);
-  	dim3 gridDimConv1(xdims[0], conv1dims[3], IOLogistics[3]*IOLogistics[4]);
+    dim3 blockDimConv1(BLOCK_SIZE, BLOCK_SIZE, 1);
+  	dim3 gridDimConv1(ceil(1.0*xdims[0]/BLOCK_SIZE), ceil(1.0*conv1dims[3]/BLOCK_SIZE), outputMapWidth*outputMapHeight);
 
     // kernel launch for first convolution layer
     conv_forward_kernel<<<gridDimConv1, blockDimConv1>>>(deviceForwardConvInput1, deviceMask1, deviceForwardConvOutput1, deviceIOLogistics);
@@ -290,53 +296,53 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     // copy output back
     cudaMemcpy(conv1Output, deviceForwardConvOutput1, IOLogistics[5]*xdims[3]*outputMapWidth*outputMapHeight*conv1dims[3]*sizeof(float), cudaMemcpyDeviceToHost);
-    
+
 
     // conv layer
     const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1), (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
     auto a = zeros<float>(adims);
     conv_forward_valid(x, xdims, conv1, conv1dims, a, adims);
-    
+
     /// relu layer
     relu4(conv1Output, adims);
-    
+
     // average pooling
     const int pool_size = 2;
     const int bdims[]   = {adims[0], adims[1] / pool_size, adims[2] / pool_size, adims[3]};
     auto b = zeros<float>(bdims);
     average_pool(conv1Output, adims, pool_size, b, bdims);
-    
+
     // conv layer
     const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1), (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
     auto c = zeros<float>(cdims);
     conv_forward_valid(b, bdims, conv2, conv2dims, c, cdims);
-    
+
     // relu
     relu4(c, cdims);
-    
+
     // average pooling
     const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size, cdims[3]};
     auto d = zeros<float>(ddims);
     average_pool(c, cdims, pool_size, d, ddims);
-    
+
     // reshape
     const int ddims2[] = {ddims[0], ddims[1] * ddims[2] * ddims[3]};
-    
+
     // matrix multiplication
     const int edims[] = {ddims[0], fc1dims[1]};
     auto e            = zeros<float>(edims);
     fully_forward(d, ddims2, fc1, fc1dims, e, edims);
-    
+
     // relu
     relu2(e, edims);
-    
+
     // matrix multiplication
     const int fdims[] = {edims[0], fc2dims[1]};
     auto f            = zeros<float>(fdims);
     fully_forward(e, edims, fc2, fc2dims, f, fdims);
-    
+
     argmax(f, fdims, out);
-    
+
     delete[] a;
     delete[] b;
     delete[] c;
@@ -346,7 +352,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 }
 
 int main(int argc, char **argv) {
-    
+
     if (argc != 3 && argc != 4) {
         std::cerr << "\n"
                   << "This program performs the forward opertion step for "
@@ -375,38 +381,38 @@ int main(int argc, char **argv) {
     }
     xdims[0] = FLAGS_batch_size;
     rdims[0] = FLAGS_batch_size;
-    
+
     // Load data into x and y
     float *x = allocate<float>(xdims);
     float *y = allocate<float>(rdims);
     loadData(x, y);
-    
+
     // Load model
     float *conv1 = allocate<float>(conv1dims);
     float *conv2 = allocate<float>(conv2dims);
     float *fc1   = allocate<float>(fc1dims);
     float *fc2   = allocate<float>(fc2dims);
     loadModel(conv1, conv2, fc1, fc2);
-    
+
     // Perform foward opertion
     int *out = zeros<int>(FLAGS_batch_size);
-    
+
     // get start time
     const auto start = now();
-    
+
     forward_operation(x, conv1, conv2, fc1, fc2, out);
-    
+
     // get end time
     const auto end = now();
-    
+
     // get elapsed time in milliseconds
     const auto elapsed =
         std::chrono::duration<double, std::milli>(end - start).count();
-    
+
     // Get reference
     int *ref = zeros<int>(FLAGS_batch_size);
     argmax(y, rdims, ref);
-    
+
     // Calculate correctness
     int num_correct = 0;
     for (const auto i : range(0, FLAGS_batch_size)) {
@@ -417,7 +423,7 @@ int main(int argc, char **argv) {
     std::cout << "Done with " << FLAGS_batch_size << " queries in "
               << "elapsed = " << elapsed << " milliseconds. Correctness: "
               << static_cast<float>(num_correct) / FLAGS_batch_size << "\n";
-    
+
     delete[] x;
     delete[] y;
     delete[] conv1;
@@ -426,6 +432,6 @@ int main(int argc, char **argv) {
     delete[] fc2;
     delete[] out;
     delete[] ref;
-    
+
     return 0;
 }
