@@ -19,12 +19,12 @@
 
 ** Forward Operation
 *** Inputs
-    - float * x = input array
-    - float * conv1 = mask for first convolution layer
-    - float * conv2 = mask for second convolution layer
-    - float * fc1 = full connections 1 weights
-    - float * fc2 = full connections 2 weights
-    - int * out = output array
+    - float * =x= = input array
+    - float * =conv1= = mask for first convolution layer
+    - float * =conv2= = mask for second convolution layer
+    - float * =fc1= = full connections 1 weights
+    - float * =fc2= = full connections 2 weights
+    - int * =out= = output array
 *** Structure and Local Variables
 **** First Convolution Layer
     - int =admins=[] = {sample size, conv 1 output rows, conv 1 output cols, conv 1 output feature maps};
