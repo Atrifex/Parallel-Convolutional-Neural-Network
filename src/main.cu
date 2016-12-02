@@ -235,6 +235,34 @@ static void argmax(const float *X, const int xdims[2], int *Y) {
 // + relu
 void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *fc2, int *out) {
 
+    // conv layer
+    const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1), (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
+    auto a = zeros<float>(adims);
+    
+    // average pooling
+    const int pool_size = 2;
+    const int bdims[]   = {adims[0], adims[1] / pool_size, adims[2] / pool_size, adims[3]};
+    auto b = zeros<float>(bdims);
+
+    // conv layer
+    const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1), (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
+    auto c = zeros<float>(cdims);
+
+    // average pooling
+    const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size, cdims[3]};
+    auto d = zeros<float>(ddims);
+    
+    // reshape
+    const int ddims2[] = {ddims[0], ddims[1] * ddims[2] * ddims[3]};
+    
+    // matrix multiplication
+    const int edims[] = {ddims[0], fc1dims[1]};
+    auto e = zeros<float>(edims);
+    
+    // matrix multiplication
+    const int fdims[] = {edims[0], fc2dims[1]};
+    auto f = zeros<float>(fdims);
+
     // Memory instantiated on the GPU to hold input data, convolution mask, output data
     float * deviceForwardConvInput1, * deviceMask1, *deviceForwardConvOutput1;
     float * deviceForwardConvInput2, * deviceMask2, *deviceForwardConvOutput2;
@@ -263,61 +291,68 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
    	float * conv1Output = new float[IOLogistics[5]*outputMapWidth * outputMapHeight * conv1dims[3]*xdims[3]];
    	
    	// Allocate device memory
-   	cudaMalloc((void**)&deviceMask1, sizeof(float));
-   	// check_success(cudaMalloc((void**)&deviceMask1, xdims[3]*IOLogistics[1]*IOLogistics[2]*sizeof(float)));
-   	// check_success(cudaMalloc((void**)&deviceForwardConvInput1, IOLogistics[5]*xdims[3]*xdims[2]*xdims[1]*conv1dims[2]*sizeof(float)));
-   	// check_success(cudaMalloc((void**)&deviceForwardConvOutput1, IOLogistics[5]*xdims[3]*outputMapWidth*outputMapHeight*conv1dims[3]*sizeof(float)));
-   	// check_success(cudaMalloc((void**)&deviceIOLogistics, IO_LOGISTICS_SIZE*sizeof(int)));
+   	check_success(cudaMalloc((void**)&deviceMask1, xdims[3]*IOLogistics[1]*IOLogistics[2]*sizeof(float)));
+   	check_success(cudaMalloc((void**)&deviceForwardConvInput1, IOLogistics[5]*xdims[3]*xdims[2]*xdims[1]*conv1dims[2]*sizeof(float)));
+   	check_success(cudaMalloc((void**)&deviceForwardConvOutput1, IOLogistics[5]*xdims[3]*outputMapWidth*outputMapHeight*conv1dims[3]*sizeof(float)));
+   	check_success(cudaMalloc((void**)&deviceIOLogistics, IO_LOGISTICS_SIZE*sizeof(int)));
 
     // perform memcopy for the first forward convolution
-    // check_success(cudaMemcpy(deviceMask1, conv1, xdims[3]*IOLogistics[1]*IOLogistics[2]*sizeof(float),cudaMemcpyHostToDevice));
-    // check_success(cudaMemcpy(deviceForwardConvInput1, x, IOLogistics[5]*xdims[3]*xdims[2]*xdims[1]*conv1dims[2]*sizeof(float),cudaMemcpyHostToDevice));
-    // check_success(cudaMemcpy(deviceIOLogistics, IOLogistics, IO_LOGISTICS_SIZE*sizeof(int),cudaMemcpyHostToDevice));
-
-
-    // conv layer
-    const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1), (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
-    auto a = zeros<float>(adims);
-    conv_forward_valid(x, xdims, conv1, conv1dims, a, adims);
+    check_success(cudaMemcpy(deviceMask1, conv1, xdims[3]*IOLogistics[1]*IOLogistics[2]*sizeof(float),cudaMemcpyHostToDevice));
+    check_success(cudaMemcpy(deviceForwardConvInput1, x, IOLogistics[5]*xdims[3]*xdims[2]*xdims[1]*conv1dims[2]*sizeof(float),cudaMemcpyHostToDevice));
+    check_success(cudaMemcpy(deviceIOLogistics, IOLogistics, IO_LOGISTICS_SIZE*sizeof(int),cudaMemcpyHostToDevice));
     
+    /* 
+     * Set grid and block dimensions for first kernel call. Each thread computes one element of one output feature map.
+     * Each thread block computes output map elements for one tile.
+     * Blocks are layered in a three-dimensional grid.
+     * gridDim.x: Number of image samples
+     * gridDim.y: Number of output feature maps
+     * gridDim.z: Number of tiles per output map
+     */
+    dim3 blockDimConv1(TILE_WIDTH, TILE_WIDTH, 1);
+  	dim3 gridDimConv1(xdims[0], conv1dims[3], IOLogistics[3]*IOLogistics[4]);
+
+    // kernel launch for first convolution layer
+    conv_forward_kernel<<<gridDimConv1, blockDimConv1>>>(deviceForwardConvInput1, deviceMask1, deviceForwardConvOutput1, deviceIOLogistics);
+    cudaDeviceSynchronize();
+
+    // copy output back
+    cudaMemcpy(conv1Output, deviceForwardConvOutput1, IOLogistics[5]*xdims[3]*outputMapWidth*outputMapHeight*conv1dims[3]*sizeof(float), cudaMemcpyDeviceToHost);
+
+    // conv 1
+    conv_forward_valid(x, xdims, conv1, conv1dims, a, adims);
+
+    for(int i = 0; i < IOLogistics[5]*xdims[3]*outputMapWidth*outputMapHeight*conv1dims[3]; i++){
+        if(a[i] != conv1Output[i]){
+            std::cout << "Failed on: " << i << std::endl;
+        }
+    }
+
     /// relu layer
     relu4(a, adims);
-    
-    // average pooling
-    const int pool_size = 2;
-    const int bdims[]   = {adims[0], adims[1] / pool_size, adims[2] / pool_size, adims[3]};
-    auto b = zeros<float>(bdims);
+
+    // avg 1
     average_pool(a, adims, pool_size, b, bdims);
   
-    // conv layer
-    const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1), (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
-    auto c = zeros<float>(cdims);
+    // conv 2
     conv_forward_valid(b, bdims, conv2, conv2dims, c, cdims);
 
-    // relu
+    /// relu layer
     relu4(c, cdims);
-    
-    // average pooling
-    const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size, cdims[3]};
-    auto d = zeros<float>(ddims);
+
+    // avg 2
     average_pool(c, cdims, pool_size, d, ddims);
-    
-    // reshape
-    const int ddims2[] = {ddims[0], ddims[1] * ddims[2] * ddims[3]};
-    
-    // matrix multiplication
-    const int edims[] = {ddims[0], fc1dims[1]};
-    auto e = zeros<float>(edims);
+
+    // full forward 1
     fully_forward(d, ddims2, fc1, fc1dims, e, edims);
-    
+
     // relu
     relu2(e, edims);
-    
-    // matrix multiplication
-    const int fdims[] = {edims[0], fc2dims[1]};
-    auto f = zeros<float>(fdims);
+
+    // full forward 2
     fully_forward(e, edims, fc2, fc2dims, f, fdims);
     
+    // gaussian layer
     argmax(f, fdims, out);
 
     delete[] a;
@@ -330,9 +365,9 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
     delete[] conv1Output;
 
     cudaFree(deviceMask1);
-    // cudaFree(deviceForwardConvInput1);
-    // cudaFree(deviceForwardConvOutput1);
-    // cudaFree(deviceIOLogistics);
+    cudaFree(deviceForwardConvInput1);
+    cudaFree(deviceForwardConvOutput1);
+    cudaFree(deviceIOLogistics);
 }
 
 int main(int argc, char **argv) {
