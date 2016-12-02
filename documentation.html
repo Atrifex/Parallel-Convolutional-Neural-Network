@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>ECE 408 - Final Project: Shit They Should Have Told Us</title>
+<!-- 2016-12-01 Thu 21:09 -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="Org-mode">
+<meta name="author" content="Rishi Thakkar">
+
+<link  href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.5/js/bootstrap.min.js"></script>
+<style type="text/css">
+/* org mode styles on top of twbs */
+
+html {
+    position: relative;
+    min-height: 100%;
+}
+
+body {
+    font-size: 18px;
+    margin-bottom: 105px;
+}
+
+footer {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    height: 101px;
+    background-color: #f5f5f5;
+}
+
+footer > div {
+    padding: 10px;
+}
+
+footer p {
+    margin: 0 0 5px;
+    text-align: center;
+    font-size: 16px;
+}
+
+#table-of-contents {
+    margin-top: 20px;
+    margin-bottom: 20px;
+}
+
+blockquote p {
+    font-size: 18px;
+}
+
+pre {
+    font-size: 16px;
+}
+
+.footpara {
+    display: inline-block;
+}
+
+figcaption {
+  font-size: 16px;
+  color: #666;
+  font-style: italic;
+  padding-bottom: 15px;
+}
+
+/* from twbs docs */
+
+.bs-docs-sidebar.affix {
+    position: static;
+}
+@media (min-width: 768px) {
+    .bs-docs-sidebar {
+        padding-left: 20px;
+    }
+}
+
+/* All levels of nav */
+.bs-docs-sidebar .nav > li > a {
+    display: block;
+    padding: 4px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #999;
+}
+.bs-docs-sidebar .nav > li > a:hover,
+.bs-docs-sidebar .nav > li > a:focus {
+    padding-left: 19px;
+    color: #A1283B;
+    text-decoration: none;
+    background-color: transparent;
+    border-left: 1px solid #A1283B;
+}
+.bs-docs-sidebar .nav > .active > a,
+.bs-docs-sidebar .nav > .active:hover > a,
+.bs-docs-sidebar .nav > .active:focus > a {
+    padding-left: 18px;
+    font-weight: bold;
+    color: #A1283B;
+    background-color: transparent;
+    border-left: 2px solid #A1283B;
+}
+
+/* Nav: second level (shown on .active) */
+.bs-docs-sidebar .nav .nav {
+    display: none; /* Hide by default, but at >768px, show it */
+    padding-bottom: 10px;
+}
+.bs-docs-sidebar .nav .nav > li > a {
+    padding-top: 1px;
+    padding-bottom: 1px;
+    padding-left: 30px;
+    font-size: 12px;
+    font-weight: normal;
+}
+.bs-docs-sidebar .nav .nav > li > a:hover,
+.bs-docs-sidebar .nav .nav > li > a:focus {
+    padding-left: 29px;
+}
+.bs-docs-sidebar .nav .nav > .active > a,
+.bs-docs-sidebar .nav .nav > .active:hover > a,
+.bs-docs-sidebar .nav .nav > .active:focus > a {
+    padding-left: 28px;
+    font-weight: 500;
+}
+
+/* Nav: third level (shown on .active) */
+.bs-docs-sidebar .nav .nav .nav {
+    padding-bottom: 10px;
+}
+.bs-docs-sidebar .nav .nav .nav > li > a {
+    padding-top: 1px;
+    padding-bottom: 1px;
+    padding-left: 40px;
+    font-size: 12px;
+    font-weight: normal;
+}
+.bs-docs-sidebar .nav .nav .nav > li > a:hover,
+.bs-docs-sidebar .nav .nav .nav > li > a:focus {
+    padding-left: 39px;
+}
+.bs-docs-sidebar .nav .nav .nav > .active > a,
+.bs-docs-sidebar .nav .nav .nav > .active:hover > a,
+.bs-docs-sidebar .nav .nav .nav > .active:focus > a {
+    padding-left: 38px;
+    font-weight: 500;
+}
+
+/* Show and affix the side nav when space allows it */
+@media (min-width: 992px) {
+    .bs-docs-sidebar .nav > .active > ul {
+        display: block;
+    }
+    /* Widen the fixed sidebar */
+    .bs-docs-sidebar.affix,
+    .bs-docs-sidebar.affix-bottom {
+        width: 213px;
+    }
+    .bs-docs-sidebar.affix {
+        position: fixed; /* Undo the static from mobile first approach */
+        top: 20px;
+    }
+    .bs-docs-sidebar.affix-bottom {
+        position: absolute; /* Undo the static from mobile first approach */
+    }
+    .bs-docs-sidebar.affix .bs-docs-sidenav,.bs-docs-sidebar.affix-bottom .bs-docs-sidenav {
+        margin-top: 0;
+        margin-bottom: 0
+    }
+}
+@media (min-width: 1200px) {
+    /* Widen the fixed sidebar again */
+    .bs-docs-sidebar.affix-bottom,
+    .bs-docs-sidebar.affix {
+        width: 263px;
+    }
+}
+</style>
+<script type="text/javascript">
+$(function() {
+    'use strict';
+
+    $('.bs-docs-sidebar li').first().addClass('active');
+
+    $(document.body).scrollspy({target: '.bs-docs-sidebar'});
+
+    $('.bs-docs-sidebar').affix();
+});
+</script>
+</head>
+<body>
+<div id="content" class="container">
+<div class="row"><div class="col-md-9"><h1 class="title">ECE 408 - Final Project: Shit They Should Have Told Us</h1>
+
+
+<div id="outline-container-sec-1" class="outline-2">
+<h2 id="sec-1"><span class="section-number-2">1</span> Documentation</h2>
+<div class="outline-text-2" id="text-1">
+</div><div id="outline-container-sec-1-1" class="outline-3">
+<h3 id="sec-1-1"><span class="section-number-3">1.1</span> Global Variables</h3>
+<div class="outline-text-3" id="text-1-1">
+<ul class="org-ul">
+<li>int <code>xdims</code>[] = {sample size, num rows, num cols, num channels}
+</li>
+<li>int <code>rdims</code>[] = {sample size, num digits};
+<ul class="org-ul">
+<li>reference samples -&#x2014;&gt; it will be used to check if the output is correct
+</li>
+</ul>
+</li>
+<li>Convolution Layer
+<ul class="org-ul">
+<li>int example[] = {rows, cols, num input feature maps, num output feature maps};
+</li>
+<li>int <code>conv1dims</code>[] = {5, 5, 1, 32};
+</li>
+<li>int <code>conv2dims</code>[] = {5, 5, 32, 64};
+</li>
+</ul>
+</li>
+<li>Sub-sampling
+<ul class="org-ul">
+<li>int example[] = {num of input data, num of output data};
+</li>
+<li>int <code>fc1dims</code>[]   = {1024, 128};
+</li>
+<li>int <code>fc2dims</code>[]   = {128, 10};
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-sec-1-2" class="outline-3">
+<h3 id="sec-1-2"><span class="section-number-3">1.2</span> Forward Operation</h3>
+<div class="outline-text-3" id="text-1-2">
+</div><div id="outline-container-sec-1-2-1" class="outline-4">
+<h4 id="sec-1-2-1"><span class="section-number-4">1.2.1</span> Inputs</h4>
+<div class="outline-text-4" id="text-1-2-1">
+<ul class="org-ul">
+<li>float * x = input array
+</li>
+<li>float * conv1 = mask for first convolution layer
+</li>
+<li>float * conv2 = mask for second convolution layer
+</li>
+<li>float * fc1 = full connections 1 weights
+</li>
+<li>float * fc2 = full connections 2 weights
+</li>
+<li>int * out = output array
+</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-sec-1-2-2" class="outline-4">
+<h4 id="sec-1-2-2"><span class="section-number-4">1.2.2</span> Structure and Local Variables</h4>
+<div class="outline-text-4" id="text-1-2-2">
+</div><ol class="org-ol"><li><a id="sec-1-2-2-1" name="sec-1-2-2-1"></a>First Convolution Layer<br ><div class="outline-text-5" id="text-1-2-2-1">
+<ul class="org-ul">
+<li>int <code>admins</code>[] = {sample size, conv 1 output rows, conv 1 output cols, conv 1 output feature maps};
+<ul class="org-ul">
+<li>output rows = num input rows - mask rows + 1
+</li>
+<li>output cols = num input cols - mask cols + 1
+</li>
+</ul>
+</li>
+<li>float * <code>a</code> = output of first convolution layer
+</li>
+<li><b><b><b><b>*</b></b></b></b> call to first convolution layer <b><b><b><b>*</b></b></b></b>
+</li>
+<li><b><b><b><b>*</b></b></b></b> call to relu <b><b><b><b>*</b></b></b></b>
+</li>
+</ul>
+</div>
+</li>
+<li><a id="sec-1-2-2-2" name="sec-1-2-2-2"></a>First Average Pool<br ><div class="outline-text-5" id="text-1-2-2-2">
+<ul class="org-ul">
+<li>int <code>poolSize</code> = reduction factor &#x2014;&gt; same one used for all average pools
+</li>
+<li>int <code>bdims</code>[] = {sample size, avg. pool 1 output rows, avg. pool 1 ouput cols, avg. pool 1 output feature maps};
+<ul class="org-ul">
+<li>output rows and cols are reduced by a factor of pool size from the con 1 output rows and cols
+</li>
+<li>avg. pool 1 output feature maps = conv 1 output feature maps
+</li>
+</ul>
+</li>
+<li>float * <code>b</code> = output of first average pool
+</li>
+<li><b><b><b><b>*</b></b></b></b> call to first average pool <b><b><b><b>*</b></b></b></b>
+</li>
+</ul>
+</div>
+</li>
+<li><a id="sec-1-2-2-3" name="sec-1-2-2-3"></a>Second Convolution Layer<br ><div class="outline-text-5" id="text-1-2-2-3">
+<ul class="org-ul">
+<li>int <code>cdims</code> = {sample size, conv 2 output rows, con 2 output cols, conv 2 output feature maps};
+<ul class="org-ul">
+<li>output rows = num input rows - mask rows + 1
+</li>
+<li>output cols = num input cols - mask cols + 1
+</li>
+</ul>
+</li>
+<li>float * <code>c</code> = output of second convolution
+</li>
+<li><b><b><b><b>*</b></b></b></b> call to second convolution layer <b><b><b><b>*</b></b></b></b>
+</li>
+<li><b><b><b><b>*</b></b></b></b> call to relu <b><b><b><b>*</b></b></b></b>
+</li>
+</ul>
+</div>
+</li>
+<li><a id="sec-1-2-2-4" name="sec-1-2-2-4"></a>Second Average Pool<br ><div class="outline-text-5" id="text-1-2-2-4">
+<ul class="org-ul">
+<li>int <code>ddims</code>[] = {sample size, avg. pool 2 output rows, avg. pool 2 ouput cols, avg. pool 2 output feature maps};
+</li>
+<li>float * <code>d</code>  = output of second average pool
+</li>
+<li><b><b><b><b>*</b></b></b></b> call to second average pool <b><b><b><b>*</b></b></b></b>
+</li>
+</ul>
+</div>
+</li>
+<li><a id="sec-1-2-2-5" name="sec-1-2-2-5"></a>First Fully Connected Layer<br ><div class="outline-text-5" id="text-1-2-2-5">
+<ul class="org-ul">
+<li>int <code>ddims2</code>[] = {sample size, rows*cols*feature maps};
+</li>
+<li>int <code>edims</code>[] = {sample size, num of output connections for fc1};
+</li>
+<li>float * <code>e</code> = output of fully connected layer 1
+</li>
+<li><b><b><b><b>*</b></b></b></b> call to first fully connected layer 1 <b><b><b><b>*</b></b></b></b>
+</li>
+<li><b><b><b><b>*</b></b></b></b> call to relu <b><b><b><b>*</b></b></b></b>
+</li>
+</ul>
+</div>
+</li>
+<li><a id="sec-1-2-2-6" name="sec-1-2-2-6"></a>Second Fully Connected Layer and Gaussian Layer<br ><div class="outline-text-5" id="text-1-2-2-6">
+<ul class="org-ul">
+<li>int <code>fdims</code>[] = {sample size, num of output connections for fc2};
+</li>
+<li>float * <code>f</code> = output of fully coonected layer 2
+</li>
+<li><b><b><b><b>*</b></b></b></b> call to first fully connected layer 2 <b><b><b><b>*</b></b></b></b>
+</li>
+<li><b><b><b><b>*</b></b></b></b> call to args max (Gaussian layer) <b><b><b><b>*</b></b></b></b> 
+</li>
+<li>And now we know what you wrote
+</li>
+</ul>
+</div>
+</li></ol>
+</div>
+</div>
+</div>
+</div><div class="col-md-3"><nav id="table-of-contents">
+<div id="text-table-of-contents" class="bs-docs-sidebar">
+<ul class="nav">
+<li><a href="#sec-1">1. Documentation</a>
+<ul class="nav">
+<li><a href="#sec-1-1">1.1. Global Variables</a></li>
+<li><a href="#sec-1-2">1.2. Forward Operation</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</nav>
+</div></div></div>
+<footer id="postamble" class="">
+<div><p class="author">Author: Rishi Thakkar</p>
+<p class="date">Created: 2016-12-01 Thu 21:09</p>
+<p class="creator"><a href="http://www.gnu.org/software/emacs/">Emacs</a> 25.1.1 (<a href="http://orgmode.org">Org-mode</a> 9.0)</p>
+</div>
+</footer>
+</body>
+</html>

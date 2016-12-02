@@ -1,0 +1,65 @@
+#+TITLE: ECE 408 - Final Project: Shit They Should Have Told Us
+#+AUTHOR: Rishi Thakkar
+#+EMAIL: rrthakk2@illinois.edu
+
+
+* Documentation
+** Global Variables
+   - int =xdims=[] = {sample size, num rows, num cols, num channels}
+   - int =rdims=[] = {sample size, num digits};
+     - reference samples ----> it will be used to check if the output is correct
+   - Convolution Layer
+     - int example[] = {rows, cols, num input feature maps, num output feature maps};
+     - int =conv1dims=[] = {5, 5, 1, 32};
+     - int =conv2dims=[] = {5, 5, 32, 64};
+   - Sub-sampling
+     - int example[] = {num of input data, num of output data};
+     - int =fc1dims=[]   = {1024, 128};
+     - int =fc2dims=[]   = {128, 10};
+
+** Forward Operation
+*** Inputs
+    - float * x = input array
+    - float * conv1 = mask for first convolution layer
+    - float * conv2 = mask for second convolution layer
+    - float * fc1 = full connections 1 weights
+    - float * fc2 = full connections 2 weights
+    - int * out = output array
+*** Structure and Local Variables
+**** First Convolution Layer
+    - int =admins=[] = {sample size, conv 1 output rows, conv 1 output cols, conv 1 output feature maps};
+      - output rows = num input rows - mask rows + 1
+      - output cols = num input cols - mask cols + 1
+    - float * =a= = output of first convolution layer
+    - ********* call to first convolution layer *********
+    - ********* call to relu *********
+**** First Average Pool
+    - int =poolSize= = reduction factor ---> same one used for all average pools
+    - int =bdims=[] = {sample size, avg. pool 1 output rows, avg. pool 1 ouput cols, avg. pool 1 output feature maps};
+      - output rows and cols are reduced by a factor of pool size from the con 1 output rows and cols
+      - avg. pool 1 output feature maps = conv 1 output feature maps
+    - float * =b= = output of first average pool
+    - ********* call to first average pool *********
+**** Second Convolution Layer
+    - int =cdims= = {sample size, conv 2 output rows, con 2 output cols, conv 2 output feature maps};
+      - output rows = num input rows - mask rows + 1
+      - output cols = num input cols - mask cols + 1
+    - float * =c= = output of second convolution
+    - ********* call to second convolution layer *********
+    - ********* call to relu *********
+**** Second Average Pool
+    - int =ddims=[] = {sample size, avg. pool 2 output rows, avg. pool 2 ouput cols, avg. pool 2 output feature maps};
+    - float * =d=  = output of second average pool
+    - ********* call to second average pool *********
+**** First Fully Connected Layer
+    - int =ddims2=[] = {sample size, rows*cols*feature maps};
+    - int =edims=[] = {sample size, num of output connections for fc1};
+    - float * =e= = output of fully connected layer 1
+    - ********* call to first fully connected layer 1 *********
+    - ********* call to relu *********
+**** Second Fully Connected Layer and Gaussian Layer
+    - int =fdims=[] = {sample size, num of output connections for fc2};
+    - float * =f= = output of fully coonected layer 2
+    - ********* call to first fully connected layer 2 *********
+    - ********* call to args max (Gaussian layer) ********* 
+    - And now we know what you wrote
