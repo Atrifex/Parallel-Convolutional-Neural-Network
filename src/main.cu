@@ -303,6 +303,12 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     auto a = zeros<float>(adims);
     conv_forward_valid(x, xdims, conv1, conv1dims, a, adims);
 
+    for(int i = 0; i < IOLogistics[5]*xdims[3]*outputMapWidth*outputMapHeight*conv1dims[3]; i++){
+            if(a[i] != conv1Output[i]){
+                std::cout << "Failed on: " << i << std::endl;
+            }
+    }
+
     /// relu layer
     relu4(conv1Output, adims);
 
