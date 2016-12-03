@@ -37,16 +37,16 @@ static int loadData(float *x, float *y) {
     // Open the data file
     const auto file_id =
         H5Fopen(FLAGS_testdata.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
-    
+
     // Open the dataset x and y
     const auto x_id = H5Dopen2(file_id, "/x", H5P_DEFAULT);
     const auto y_id = H5Dopen2(file_id, "/y", H5P_DEFAULT);
-    
+
     // Get the dataset x dimensions
     const auto xspace = H5Dget_space(x_id);
     const auto xndims = H5Sget_simple_extent_ndims(xspace);
     assert(xndims == 4);
-    
+
     hsize_t input_dims[xndims];
     H5Sget_simple_extent_dims(xspace, input_dims, NULL);
     if (input_dims[0] != FLAGS_batch_size) {
@@ -55,20 +55,20 @@ static int loadData(float *x, float *y) {
     }
     std::cout << "input dimensions = " << input_dims[0] << " x " << input_dims[1]
               << " x " << input_dims[2] << " x " << input_dims[3] << "\n";
-    
+
     // Read the dataset x and y
     check_success(
         H5Dread(x_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, x));
     check_success(
         H5Dread(y_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, y));
-    
+
     // Close the dataset x and y
     check_success(H5Dclose(x_id));
     check_success(H5Dclose(y_id));
-    
+
     // Close the file
     check_success(H5Fclose(file_id));
-    
+
     // return success
     return 0;
 }
@@ -76,13 +76,13 @@ static int loadData(float *x, float *y) {
 static void loadModel(float *conv1, float *conv2, float *fc1, float *fc2) {
     // Open the model file
     const auto file_id = H5Fopen(FLAGS_model.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
-    
+
     // Open the dataset
     const auto conv1_id = H5Dopen2(file_id, "/conv1", H5P_DEFAULT);
     const auto conv2_id = H5Dopen2(file_id, "/conv2", H5P_DEFAULT);
     const auto fc1_id   = H5Dopen2(file_id, "/fc1", H5P_DEFAULT);
     const auto fc2_id   = H5Dopen2(file_id, "/fc2", H5P_DEFAULT);
-    
+
     // Read the dataset
     check_success(H5Dread(conv1_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL,
                           H5P_DEFAULT, conv1));
@@ -92,13 +92,13 @@ static void loadModel(float *conv1, float *conv2, float *fc1, float *fc2) {
         H5Dread(fc1_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, fc1));
     check_success(
         H5Dread(fc2_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, fc2));
-    
+
     // Close the dataset x and y
     check_success(H5Dclose(conv1_id));
     check_success(H5Dclose(conv2_id));
     check_success(H5Dclose(fc1_id));
     check_success(H5Dclose(fc2_id));
-    
+
     // Close the file
     check_success(H5Fclose(file_id));
 }
@@ -121,14 +121,14 @@ __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], 
    	int filter_h   = wdims[0];
   	int filter_w   = wdims[1];
   	int in_feature_maps = wdims[2];
-    
+
     int n, m, h, w;
     n = blockIdx.x;
     m = blockIdx.y;
-    
+
 		h = (blockIdx.z / ((ydims[2]-1)/TILE_WIDTH + 1))*TILE_WIDTH + threadIdx.y;
 		w = (blockIdx.z % ((ydims[1]-1)/TILE_WIDTH + 1))*TILE_WIDTH + threadIdx.x;
-    
+
 		int i = n;
     if(w < ydims[1] && h < ydims[2]){
         float acc = 0.0f;
@@ -142,42 +142,7 @@ __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], 
             }
         }
         int yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-        Y[yoffset] = acc;
-    }
-}
-
-// // From book chapter Figure 16.4
-// static void conv_forward_valid(const float *X, const int xdims[4],
-//                                const float *W, const int wdims[4], float *Y,
-//                                const int ydims[4]) {
-//   const auto filter_h   = wdims[0];
-//   const auto filter_w   = wdims[1];
-//   const auto in_channel = wdims[2];
-//
-//   for (const auto i : range(0, ydims[0])) { // sample size
-//     for (const auto m : range(0, ydims[3])) { // num output maps
-//       for (const auto w : range(0, ydims[2])) { // num out cols
-//         for (const auto h : range(0, ydims[1])) { // num out rows
-//           for (const auto p : range(0, filter_h)) { // mask height
-//             for (const auto q : range(0, filter_w)) { // mask width
-//               for (const auto c : range(0, in_channel)) { // num input maps (channels?)
-//                 const auto yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-//                 const auto xoffset = i * xdims[1] * xdims[2] * xdims[3] + (h + p) * xdims[2] * xdims[3] + (w + q) * xdims[3] + c;
-//                 const auto woffset = p * wdims[1] * wdims[2] * wdims[3] + q * wdims[2] * wdims[3] + c * wdims[3] + m;
-//                 Y[yoffset] += X[xoffset] * W[woffset];
-//               }
-//             }
-//           }
-//         }
-//       }
-//     }
-//   }
-// }
-
-// Recified linear unit 4d
-static void relu4(float *X, const int xdims[4]) {
-    for (const auto i : range(0, xdims[0] * xdims[1] * xdims[2] * xdims[3])) {
-        X[i] = (X[i] < 0) ? 0 : X[i];
+        Y[yoffset] = (acc < 0.0f) ? 0.0f : acc;
     }
 }
 
@@ -230,7 +195,7 @@ static void average_pool(const float *X, const int xdims[4],
 }
 
 static void fully_forward(const float *X, const int xdims[2], float *W,
-                          
+
                           const int wdims[2], float *Y, const int ydims[2]) {
     for (const auto i : range(0, xdims[0])) {
         for (const auto j : range(0, wdims[1])) {
@@ -263,55 +228,55 @@ static void argmax(const float *X, const int xdims[2], int *Y) {
 // + relu
 void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
                        float *fc2, int *out) {
-    
+
     // conv layer 1 vars
     const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1),
                          (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
     auto a = zeros<float>(adims);
     auto conv1Output = zeros<float>(adims);
-    
+
     // avg pool 1 vars
     const int pool_size = 2;
     const int bdims[]   = {adims[0], adims[1] / pool_size, adims[2] / pool_size,
                            adims[3]};
     auto b = zeros<float>(bdims);
-    
+
     // conv layer 2 vars
     const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1),
                          (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
     auto c = zeros<float>(cdims);
     auto conv2Output = zeros<float>(cdims);
-    
+
     // avg pool 2 vars
     const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size,
                          cdims[3]};
     auto d = zeros<float>(ddims);
-    
-    
+
+
     // fully connected layer 1 vars
     const int ddims2[] = {ddims[0], ddims[1] * ddims[2] * ddims[3]};
     const int edims[] = {ddims[0], fc1dims[1]};
     auto e = zeros<float>(edims);
-    
+
     // fully connected layer 2 vars
     const int fdims[] = {edims[0], fc2dims[1]};
     auto f = zeros<float>(fdims);
-    
+
     // CUDA device vars
     int * deviceIndims, * deviceMaskdims, * deviceOutdims;               // logistical vars
     float * deviceInputConv1, * deviceMaskConv1, * deviceOutputConv1;    // conv 1 vars
     float * deviceInputConv2, * deviceMaskConv2, * deviceOutputConv2;    // conv 2 vars
-    
+
     // allocate memory for device data
     check_success(cudaMalloc((void**)&deviceInputConv1, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceMaskConv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
-    
+
     // allocate memory for device data dims
     check_success(cudaMalloc((void**)&deviceIndims, 4*sizeof(int)));
     check_success(cudaMalloc((void**)&deviceMaskdims, 4*sizeof(int)));
     check_success(cudaMalloc((void**)&deviceOutdims, 4*sizeof(int)));
-    
+
     // copy data to device
     check_success(cudaMemcpy(deviceInputConv1, x, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
     check_success(cudaMemcpy(deviceMaskConv1, conv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
@@ -319,31 +284,28 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     check_success(cudaMemcpy(deviceIndims, xdims, 4*sizeof(int),cudaMemcpyHostToDevice));
     check_success(cudaMemcpy(deviceMaskdims, conv1dims, 4*sizeof(int),cudaMemcpyHostToDevice));
     check_success(cudaMemcpy(deviceOutdims, adims, 4*sizeof(int),cudaMemcpyHostToDevice));
-    
+
     // kernel dims
     int N = xdims[0];
     int M = conv1dims[3];
     int Z = ((adims[2]-1)/TILE_WIDTH+1)*((adims[1]-1)/TILE_WIDTH+1);
     dim3 blockDimConv1(TILE_WIDTH, TILE_WIDTH, 1);
     dim3 gridDimConv1(N, M, Z);
-    
+
     // first kernel launch
     conv_forward_kernel<<<gridDimConv1, blockDimConv1>>>(deviceInputConv1, deviceMaskConv1, deviceOutputConv1, deviceIndims, deviceMaskdims, deviceOutdims);
-    
+
     // copy output data back from device
     check_success(cudaMemcpy(conv1Output, deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
-    
-    // relu layer
-    relu4(conv1Output, adims);
-    
+
     // average pooling 1
     average_pool(conv1Output, adims, pool_size, b, bdims);
-    
+
     // conv layer 2 setup
     check_success(cudaMalloc((void**)&deviceInputConv2, bdims[0]*bdims[1]*bdims[2]*conv2dims[2]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceMaskConv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*xdims[3]*sizeof(float)));
-    
+
     // copy data to device
     check_success(cudaMemcpy(deviceInputConv2, b, bdims[0]*bdims[1]*bdims[2]*conv2dims[2]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
     check_success(cudaMemcpy(deviceMaskConv2, conv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
@@ -351,43 +313,40 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     check_success(cudaMemcpy(deviceIndims, bdims, 4*sizeof(int),cudaMemcpyHostToDevice));
     check_success(cudaMemcpy(deviceMaskdims, conv2dims, 4*sizeof(int),cudaMemcpyHostToDevice));
     check_success(cudaMemcpy(deviceOutdims, cdims, 4*sizeof(int),cudaMemcpyHostToDevice));
-    
+
     // kernel dims
     N = bdims[0];
     M = conv2dims[3];
     Z = ((cdims[2]-1)/TILE_WIDTH+1)*((cdims[1]-1)/TILE_WIDTH+1);
     dim3 blockDimConv2(TILE_WIDTH, TILE_WIDTH, 1);
     dim3 gridDimConv2(N, M, Z);
-    
+
     // conv layer 2
     conv_forward_kernel<<<gridDimConv2, blockDimConv2>>>(deviceInputConv2, deviceMaskConv2, deviceOutputConv2, deviceIndims, deviceMaskdims, deviceOutdims);
-    
+
     // copy output data back from device
     check_success(cudaMemcpy(conv2Output, deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*conv2dims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
-    
+
     // freeing device memory for conv 2 layer
     cudaFree(deviceInputConv2);
     cudaFree(deviceOutputConv2);
     cudaFree(deviceMaskConv2);
-    
-    // relu
-    relu4(conv2Output, cdims);
-    
+
     // average pooling 2
     average_pool(conv2Output, cdims, pool_size, d, ddims);
-    
+
     // fully connected layer 1 (matrix multiplication)
     fully_forward(d, ddims2, fc1, fc1dims, e, edims);
-    
+
     // relu
     relu2(e, edims);
-    
+
     // fully connected layer 2 (matrix multiplication)
     fully_forward(e, edims, fc2, fc2dims, f, fdims);
-    
+
     // gaussian layer
     argmax(f, fdims, out);
-    
+
     delete[] a;
     delete[] b;
     delete[] c;
@@ -397,7 +356,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 }
 
 int main(int argc, char **argv) {
-    
+
     if (argc != 3 && argc != 4) {
         std::cerr << "\n"
                   << "This program performs the forward opertion step for "
@@ -426,38 +385,38 @@ int main(int argc, char **argv) {
     }
     xdims[0] = FLAGS_batch_size;
     rdims[0] = FLAGS_batch_size;
-    
+
     // Load data into x and y
     float *x = allocate<float>(xdims);
     float *y = allocate<float>(rdims);
     loadData(x, y);
-    
+
     // Load model
     float *conv1 = allocate<float>(conv1dims);
     float *conv2 = allocate<float>(conv2dims);
     float *fc1   = allocate<float>(fc1dims);
     float *fc2   = allocate<float>(fc2dims);
     loadModel(conv1, conv2, fc1, fc2);
-    
+
     // Perform foward opertion
     int *out = zeros<int>(FLAGS_batch_size);
-    
+
     // get start time
     const auto start = now();
-    
+
     forward_operation(x, conv1, conv2, fc1, fc2, out);
-    
+
     // get end time
     const auto end = now();
-    
+
     // get elapsed time in milliseconds
     const auto elapsed =
         std::chrono::duration<double, std::milli>(end - start).count();
-    
+
     // Get reference
     int *ref = zeros<int>(FLAGS_batch_size);
     argmax(y, rdims, ref);
-    
+
     // Calculate correctness
     int num_correct = 0;
     for (const auto i : range(0, FLAGS_batch_size)) {
@@ -468,7 +427,7 @@ int main(int argc, char **argv) {
     std::cout << "Done with " << FLAGS_batch_size << " queries in "
               << "elapsed = " << elapsed << " milliseconds. Correctness: "
               << static_cast<float>(num_correct) / FLAGS_batch_size << "\n";
-    
+
     delete[] x;
     delete[] y;
     delete[] conv1;
@@ -477,6 +436,6 @@ int main(int argc, char **argv) {
     delete[] fc2;
     delete[] out;
     delete[] ref;
-    
+
     return 0;
 }
