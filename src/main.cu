@@ -146,13 +146,6 @@ __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], 
     }
 }
 
-// Recified linear unit 2d
-static void relu2(float *X, const int xdims[2]) {
-    for (const auto i : range(0, xdims[0] * xdims[1])) {
-        X[i] = (X[i] < 0) ? 0 : X[i];
-    }
-}
-
 // CUDA kernel for average pool
 // __global__ void average_pool(const float *X, const int xdims[4],
 //                          const int pool_size, float *Y, const int ydims[4]) {
@@ -203,7 +196,7 @@ static void fully_forward(const float *X, const int xdims[2], float *W,
             for (const auto k : range(0, xdims[1])) {
                 sum += X[i * xdims[1] + k] * W[k * wdims[1] + j];
             }
-            Y[i * wdims[1] + j] = sum;
+            Y[i * wdims[1] + j] = (sum < 0.0f) ? 0.0f : sum;
         }
     }
 }
@@ -338,9 +331,6 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     // fully connected layer 1 (matrix multiplication)
     fully_forward(d, ddims2, fc1, fc1dims, e, edims);
 
-    // relu
-    relu2(e, edims);
-
     // fully connected layer 2 (matrix multiplication)
     fully_forward(e, edims, fc2, fc2dims, f, fdims);
 
@@ -353,6 +343,11 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     delete[] d;
     delete[] e;
     delete[] f;
+
+    // freeing device memory for dimensional data
+    cudaFree(deviceIndims);
+    cudaFree(deviceMaskdims);
+    cudaFree(deviceOutdims);
 }
 
 int main(int argc, char **argv) {
