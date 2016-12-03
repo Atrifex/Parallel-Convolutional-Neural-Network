@@ -127,20 +127,21 @@ __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], 
      * q = mask width
      * c = num input maps
      */
-    float acc = 0.0f;
-    for (int p = 0; p < filter_h; p++) {
-        for (int q = 0; q < filter_w; q++) {
-            for (int c = 0; c < in_channel; c++) {
-              int xoffset = i * xdims[1] * xdims[2] * xdims[3] + (h + p) * xdims[2] * xdims[3] + (w + q) * xdims[3] + c;
-              int woffset = p * wdims[1] * wdims[2] * wdims[3] + q * wdims[2] * wdims[3] + c * wdims[3] + m;
-              acc += X[xoffset] * W[woffset];
-            }
-        }
+    if(w < ydims[1] && h < ydims[2]){
+      float acc = 0.0f;
+      for (int p = 0; p < filter_h; p++) {
+          for (int q = 0; q < filter_w; q++) {
+              for (int c = 0; c < in_channel; c++) {
+                int xoffset = i * xdims[1] * xdims[2] * xdims[3] + (h + p) * xdims[2] * xdims[3] + (w + q) * xdims[3] + c;
+                int woffset = p * wdims[1] * wdims[2] * wdims[3] + q * wdims[2] * wdims[3] + c * wdims[3] + m;
+                acc += X[xoffset] * W[woffset];
+              }
+          }
+      }
+      int yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
+      Y[yoffset] = acc;
     }
-    int yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-    Y[yoffset] = acc;
 }
-
 
 // From book chapter Figure 16.4
 static void conv_forward_valid(const float *X, const int xdims[4],
@@ -152,8 +153,8 @@ static void conv_forward_valid(const float *X, const int xdims[4],
 
   for (const auto i : range(0, ydims[0])) { // sample size
     for (const auto m : range(0, ydims[3])) { // num output maps
-      for (const auto w : range(0, ydims[2])) { // num cols
-        for (const auto h : range(0, ydims[1])) { // num rows
+      for (const auto w : range(0, ydims[2])) { // num out cols
+        for (const auto h : range(0, ydims[1])) { // num out rows
           for (const auto p : range(0, filter_h)) { // mask height
             for (const auto q : range(0, filter_w)) { // mask width
               for (const auto c : range(0, in_channel)) { // num input maps (channels?)
@@ -286,7 +287,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 	check_success(cudaMalloc((void**)&deviceInput1, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float)));
 	check_success(cudaMalloc((void**)&deviceOutput1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 	check_success(cudaMalloc((void**)&deviceMask1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float)));
-  
+
 	// allocate memory for device data dims
 	check_success(cudaMalloc((void**)&deviceIndims, 4*sizeof(int)));
 	check_success(cudaMalloc((void**)&deviceMaskdims, 4*sizeof(int)));
@@ -315,20 +316,13 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 	check_success(cudaMemcpy(conv1Output, deviceOutput1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
 
 	// conv layer 1
-	conv_forward_valid(x, xdims, conv1, conv1dims, a, adims);
+	// conv_forward_valid(x, xdims, conv1, conv1dims, a, adims);
 
-
-	//for(int i = 0; i < adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]; i++){
-		 // if(a[i] != conv1Output[i]){
-		    //  std::cout << "Failed on: " << i << std::endl;
-		 // }
-  //}
-
-  /// relu layer
-  relu4(a, adims);
+  // relu layer
+  relu4(conv1Output, adims);
 
   // average pooling 1
-  average_pool(a, adims, pool_size, b, bdims);
+  average_pool(conv1Output, adims, pool_size, b, bdims);
 
   // conv layer 2
   conv_forward_valid(b, bdims, conv2, conv2dims, c, cdims);
