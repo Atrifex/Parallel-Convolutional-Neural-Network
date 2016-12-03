@@ -269,15 +269,17 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     float * deviceInputConv2, * deviceMaskConv2, * deviceOutputConv2;    // conv 2 vars
     float * deviceInputPool2, * deviceOutputPool2;                       // pool 2 vars
 
-    // allocate memory for device data
-    check_success(cudaMalloc((void**)&deviceInputConv1, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float)));
-    check_success(cudaMalloc((void**)&deviceMaskConv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float)));
-    check_success(cudaMalloc((void**)&deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 
     // allocate memory for device data dims
     check_success(cudaMalloc((void**)&deviceIndims, 4*sizeof(int)));
     check_success(cudaMalloc((void**)&deviceMaskdims, 4*sizeof(int)));
     check_success(cudaMalloc((void**)&deviceOutdims, 4*sizeof(int)));
+
+    /*********************************************** CONV 1 Layer ************************************************/
+    // allocate memory for device data
+    check_success(cudaMalloc((void**)&deviceInputConv1, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float)));
+    check_success(cudaMalloc((void**)&deviceMaskConv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float)));
+    check_success(cudaMalloc((void**)&deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 
     // copy data to device
     check_success(cudaMemcpy(deviceInputConv1, x, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
@@ -301,6 +303,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     // copy output data back from device
     check_success(cudaMemcpy(conv1Output, deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
 
+    /*********************************************** AVG POOL 1 Layer ************************************************/
     // allocate memory for device pool 1 calculation
     check_success(cudaMalloc((void**)&deviceInputPool1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceOutputPool1, bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]*sizeof(float)));
@@ -319,7 +322,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     dim3 blockDimPool1(TILE_WIDTH, TILE_WIDTH, 1);
     dim3 gridDimPool1(N, M, Z);
 
-    // first kernel launch
+    // avg pool 1 launch
     average_pool_kernel<<<gridDimPool1, blockDimPool1>>>(deviceInputPool1, deviceOutputPool1, deviceIndims, deviceOutdims, pool_size);
     cudaDeviceSynchronize();
 
@@ -330,6 +333,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     cudaFree(deviceInputPool1);
     cudaFree(deviceOutputPool1);
 
+    /*********************************************** CONV 2 Layer ************************************************/
     // conv layer 2 setup
     check_success(cudaMalloc((void**)&deviceInputConv2, bdims[0]*bdims[1]*bdims[2]*conv2dims[2]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceMaskConv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*xdims[3]*sizeof(float)));
@@ -362,7 +366,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     cudaFree(deviceOutputConv2);
     cudaFree(deviceMaskConv2);
 
-        // allocate memory for device pool 1 calculation
+    /*********************************************** AVG POOL 2 Layer ************************************************/
+    // allocate memory for device pool 2 calculation
     check_success(cudaMalloc((void**)&deviceInputPool2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceOutputPool2, ddims[0]*ddims[1]*ddims[2]*ddims[3]*xdims[3]*sizeof(float)));
 
@@ -380,19 +385,16 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     dim3 blockDimPool2(TILE_WIDTH, TILE_WIDTH, 1);
     dim3 gridDimPool2(N, M, Z);
 
-    // first kernel launch
+    // avg pool 2 launch
     average_pool_kernel<<<gridDimPool2, blockDimPool2>>>(deviceInputPool2, deviceOutputPool2, deviceIndims, deviceOutdims, pool_size);
     cudaDeviceSynchronize();
 
     // copy output data back from device
-    check_success(cudaMemcpy(pool2Output, deviceOutputPool2, bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
+    check_success(cudaMemcpy(pool2Output, deviceOutputPool2, ddims[0]*ddims[1]*ddims[2]*ddims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
 
     // avg pool memory freed
     cudaFree(deviceInputPool2);
     cudaFree(deviceOutputPool2);
-
-    // // average pooling 2
-    // average_pool(conv2Output, cdims, pool_size, d, ddims);
 
     // fully connected layer 1 (matrix multiplication)
     fully_forward(pool2Output, ddims2, fc1, fc1dims, e, edims);
