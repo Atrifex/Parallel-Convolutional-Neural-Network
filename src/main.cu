@@ -173,26 +173,6 @@ __global__ void average_pool_kernel(float *X, float *Y, int xdims[4], int ydims[
   }
 }
 
-// From book chapter Figure 16.5
-static void average_pool(const float *X, const int xdims[4],
-                         const int pool_size, float *Y, const int ydims[4]) {
-    for (const auto i : range(0, ydims[0])) { // sample size
-        for (const auto m : range(0, ydims[3])) { // num feature maps
-            for (const auto w : range(0, ydims[2])) { // cols
-                for (const auto h : range(0, ydims[1])) { // rows
-                    for (const auto p : range(0, pool_size)) {
-                        for (const auto q : range(0, pool_size)) {
-                            const auto yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-                            const auto xoffset = i * xdims[1] * xdims[2] * xdims[3] + (pool_size * h + p) * xdims[2] * xdims[3] + (pool_size * w + q) * xdims[3] + m;
-                            Y[yoffset] += X[xoffset] / (1.0f * pool_size * pool_size);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 static void fully_forward(const float *X, const int xdims[2], float *W,
 
                           const int wdims[2], float *Y, const int ydims[2]) {
@@ -385,7 +365,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     dim3 blockDimPool2(TILE_WIDTH, TILE_WIDTH, 1);
     dim3 gridDimPool2(N, M, Z);
 
-    // avg pool 2 launch
+    // Second average pool kernel launch
     average_pool_kernel<<<gridDimPool2, blockDimPool2>>>(deviceInputPool2, deviceOutputPool2, deviceIndims, deviceOutdims, pool_size);
     cudaDeviceSynchronize();
 
