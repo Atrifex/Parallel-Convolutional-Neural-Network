@@ -188,17 +188,35 @@ static void relu2(float *X, const int xdims[2]) {
   }
 }
 
+// CUDA kernel for average pool
+// __global__ void average_pool(const float *X, const int xdims[4],
+//                          const int pool_size, float *Y, const int ydims[4]) {
+//
+// 	 int n, m, h, w;
+//      n = blockIdx.x;
+//      m = blockIdx.y;
+//
+//      h = (blockIdx.z / ((ydims[2]-1)/TILE_WIDTH + 1))*TILE_WIDTH + threadIdx.y;
+//      w = (blockIdx.z % ((ydims[1]-1)/TILE_WIDTH + 1))*TILE_WIDTH + threadIdx.x;
+//      for (const auto p : range(0, pool_size)) {
+//   	   for (const auto q : range(0, pool_size)) {
+//   		   const auto yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
+//   		   const auto xoffset = i * xdims[1] * xdims[2] * xdims[3] + (pool_size * h + p) * xdims[2] * xdims[3] + (pool_size * w + q) * xdims[3] + m;
+//   		   Y[yoffset] += X[xoffset] / (1.0f * pool_size * pool_size);
+//       }
+//     }
+// }
+
 // From book chapter Figure 16.5
 static void average_pool(const float *X, const int xdims[4],
                          const int pool_size, float *Y, const int ydims[4]) {
-  for (const auto i : range(0, ydims[0])) {
-    for (const auto m : range(0, ydims[3])) {
-      for (const auto w : range(0, ydims[2])) {
-        for (const auto h : range(0, ydims[1])) {
+  for (const auto i : range(0, ydims[0])) { // sample size
+    for (const auto m : range(0, ydims[3])) { // num feature maps
+      for (const auto w : range(0, ydims[2])) { // cols
+        for (const auto h : range(0, ydims[1])) { // rows
           for (const auto p : range(0, pool_size)) {
             for (const auto q : range(0, pool_size)) {
-              const auto yoffset =
-                  ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
+              const auto yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
               const auto xoffset = i * xdims[1] * xdims[2] * xdims[3] +
                                    (pool_size * h + p) * xdims[2] * xdims[3] +
                                    (pool_size * w + q) * xdims[3] + m;
