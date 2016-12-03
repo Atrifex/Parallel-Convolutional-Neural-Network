@@ -373,18 +373,6 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     // copy output data back from device
     check_success(cudaMemcpy(pool1Output, deviceOutputPool1, bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
 
-    // average pooling 1
-    // average_pool(conv1Output, adims, pool_size, b, bdims);
-
-    // for(int i = 0; i < bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]; i++){
-    //   if(b[i] != pool1Output[i]){
-    //       std::cout << "Failed on: " << i << std::endl;
-    //   }
-    // }
-    // for(int i = 0; i < 4; i++){
-    //       std::cout << (int)pool1Output[i] << std::endl;
-    // }
-
     // conv layer 2 setup
     check_success(cudaMalloc((void**)&deviceInputConv2, bdims[0]*bdims[1]*bdims[2]*conv2dims[2]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceMaskConv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*xdims[3]*sizeof(float)));
