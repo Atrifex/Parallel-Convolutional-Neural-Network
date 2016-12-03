@@ -261,7 +261,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
                        (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
   auto c = zeros<float>(cdims);
 
-  float * conv2Output = new float[cdims[0]*cdims[1]*cdims[2]*cdims[3]*bdims[3]];
+  float * conv2Output = new float[cdims[0]*cdims[1]*cdims[2]*conv2dims[3]*xdims[3]];
 
 	// avg pool 2 vars
   const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size,
@@ -291,12 +291,12 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
 	// conv 1 layer set up
 	check_success(cudaMalloc((void**)&deviceInputConv1, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float)));
-  check_success(cudaMalloc((void**)&deviceMaskConv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float)));
+  check_success(cudaMalloc((void**)&deviceMaskConv1, conv1dims[0]*conv1dims[1]*conv1dims[3]*xdims[3]*sizeof(float)));
 	check_success(cudaMalloc((void**)&deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 
 	// copy data to device
   check_success(cudaMemcpy(deviceInputConv1, x, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
-  check_success(cudaMemcpy(deviceMaskConv1, conv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
+  check_success(cudaMemcpy(deviceMaskConv1, conv1, conv1dims[0]*conv1dims[1]*conv1dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
 	// copy data dims to device
   check_success(cudaMemcpy(deviceIndims, xdims, 4*sizeof(int),cudaMemcpyHostToDevice));
   check_success(cudaMemcpy(deviceMaskdims, conv1dims, 4*sizeof(int),cudaMemcpyHostToDevice));
@@ -327,14 +327,14 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
   average_pool(conv1Output, adims, pool_size, b, bdims);
 
   // conv layer 2 setup
-  check_success(cudaMalloc((void**)&deviceInputConv2, bdims[0]*bdims[1]*bdims[2]*conv2dims[2]*bdims[3]*sizeof(float)));
-  check_success(cudaMalloc((void**)&deviceMaskConv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*bdims[3]*sizeof(float)));
-  check_success(cudaMalloc((void**)&deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*bdims[3]*sizeof(float)));
+  check_success(cudaMalloc((void**)&deviceInputConv2, bdims[0]*bdims[1]*bdims[2]*conv2dims[2]*xdims[3]*sizeof(float)));
+  check_success(cudaMalloc((void**)&deviceMaskConv2, conv2dims[0]*conv2dims[1]*conv2dims[3]*xdims[3]*sizeof(float)));
+  check_success(cudaMalloc((void**)&deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*conv2dims[3]*xdims[3]*sizeof(float)));
 
-  // copy data to device
-  check_success(cudaMemcpy(deviceInputConv2, b, bdims[0]*bdims[1]*bdims[2]*conv2dims[2]*bdims[3]*sizeof(float),cudaMemcpyHostToDevice));
-  check_success(cudaMemcpy(deviceMaskConv2, conv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*bdims[3]*sizeof(float),cudaMemcpyHostToDevice));
-  // copy data dims to device
+  // // copy data to device
+  check_success(cudaMemcpy(deviceInputConv2, b, bdims[0]*bdims[1]*bdims[2]*conv2dims[2]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
+  check_success(cudaMemcpy(deviceMaskConv2, conv2, conv2dims[0]*conv2dims[1]*conv2dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
+  // // copy data dims to device
   check_success(cudaMemcpy(deviceIndims, bdims, 4*sizeof(int),cudaMemcpyHostToDevice));
   check_success(cudaMemcpy(deviceMaskdims, conv2dims, 4*sizeof(int),cudaMemcpyHostToDevice));
   check_success(cudaMemcpy(deviceOutdims, cdims, 4*sizeof(int),cudaMemcpyHostToDevice));
@@ -350,18 +350,20 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
   conv_forward_kernel<<<gridDimConv2, blockDimConv2>>>(deviceInputConv2, deviceMaskConv2, deviceOutputConv2, deviceIndims, deviceMaskdims, deviceOutdims);
 
   // copy output data back from device
-  check_success(cudaMemcpy(conv2Output, deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*bdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
+  check_success(cudaMemcpy(conv2Output, deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*conv2dims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
 
   // freeing device memory for conv 2 layer
   cudaFree(deviceInputConv2);
   cudaFree(deviceOutputConv2);
   cudaFree(deviceMaskConv2);
 
+  conv_forward_valid(b, bdims, conv2, conv2dims, c, cdims);
+
   // relu
-  relu4(conv2Output, cdims);
+  relu4(b, cdims);
 
   // average pooling 2
-  average_pool(conv2Output, cdims, pool_size, d, ddims);
+  average_pool(b, cdims, pool_size, d, ddims);
 
   // fully connected layer 1 (matrix multiplication)
 	fully_forward(d, ddims2, fc1, fc1dims, e, edims);
