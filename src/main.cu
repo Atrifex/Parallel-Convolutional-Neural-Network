@@ -146,34 +146,6 @@ __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], 
     }
 }
 
-// // From book chapter Figure 16.4
-// static void conv_forward_valid(const float *X, const int xdims[4],
-//                                const float *W, const int wdims[4], float *Y,
-//                                const int ydims[4]) {
-//   const auto filter_h   = wdims[0];
-//   const auto filter_w   = wdims[1];
-//   const auto in_channel = wdims[2];
-//
-//   for (const auto i : range(0, ydims[0])) { // sample size
-//     for (const auto m : range(0, ydims[3])) { // num output maps
-//       for (const auto w : range(0, ydims[2])) { // num out cols
-//         for (const auto h : range(0, ydims[1])) { // num out rows
-//           for (const auto p : range(0, filter_h)) { // mask height
-//             for (const auto q : range(0, filter_w)) { // mask width
-//               for (const auto c : range(0, in_channel)) { // num input maps (channels?)
-//                 const auto yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-//                 const auto xoffset = i * xdims[1] * xdims[2] * xdims[3] + (h + p) * xdims[2] * xdims[3] + (w + q) * xdims[3] + c;
-//                 const auto woffset = p * wdims[1] * wdims[2] * wdims[3] + q * wdims[2] * wdims[3] + c * wdims[3] + m;
-//                 Y[yoffset] += X[xoffset] * W[woffset];
-//               }
-//             }
-//           }
-//         }
-//       }
-//     }
-//   }
-// }
-
 // Recified linear unit 4d
 static void relu4(float *X, const int xdims[4]) {
     for (const auto i : range(0, xdims[0] * xdims[1] * xdims[2] * xdims[3])) {
@@ -187,25 +159,6 @@ static void relu2(float *X, const int xdims[2]) {
         X[i] = (X[i] < 0) ? 0 : X[i];
     }
 }
-
-// CUDA kernel for average pool
-// __global__ void average_pool(const float *X, const int xdims[4],
-//                          const int pool_size, float *Y, const int ydims[4]) {
-//
-// 	 int n, m, h, w;
-//      n = blockIdx.x;
-//      m = blockIdx.y;
-//
-//      h = (blockIdx.z / ((ydims[2]-1)/TILE_WIDTH + 1))*TILE_WIDTH + threadIdx.y;
-//      w = (blockIdx.z % ((ydims[1]-1)/TILE_WIDTH + 1))*TILE_WIDTH + threadIdx.x;
-//      for (const auto p : range(0, pool_size)) {
-//   	   for (const auto q : range(0, pool_size)) {
-//   		   const auto yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-//   		   const auto xoffset = i * xdims[1] * xdims[2] * xdims[3] + (pool_size * h + p) * xdims[2] * xdims[3] + (pool_size * w + q) * xdims[3] + m;
-//   		   Y[yoffset] += X[xoffset] / (1.0f * pool_size * pool_size);
-//       }
-//     }
-// }
 
 // From book chapter Figure 16.5
 static void average_pool(const float *X, const int xdims[4],
