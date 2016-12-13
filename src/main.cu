@@ -135,7 +135,8 @@ __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], 
   h = h_base + h0;
   w = w_base + w0;
 
-  if(w < ydims[1] && h < ydims[2]){
+  if(w < ydims[2] && h < ydims[1])
+  {
     float acc = 0.0f;
     // sum over all input channels
     for (int c = 0; c < wdims[2]  ; c++)
@@ -163,8 +164,8 @@ __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], 
       {
         for (int q = 0; q < wdims[1]; q++)
         {
-          int x_shared_offset = X_tile_width*(h+p) + (w+q);
-          int w_shared_offset = wdims[0]*p + q;
+          int x_shared_offset = X_tile_width*(h0+p) + (w0+q);
+          int w_shared_offset = wdims[1]*p + q;
           acc = acc + X_shared[x_shared_offset] * W_shared[w_shared_offset];
         }
       }
