@@ -127,9 +127,9 @@ __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], 
 
   n = blockIdx.x;
   m = blockIdx.y;
-  h0 = threadIdx.x;
-  w0 = threadIdx.y;
 
+  h0 = threadIdx.y;
+  w0 = threadIdx.x;
   h_base = (blockIdx.z / ((ydims[2]-1)/TILE_WIDTH + 1))*TILE_WIDTH;
   w_base = (blockIdx.z % ((ydims[1]-1)/TILE_WIDTH + 1))*TILE_WIDTH;
   h = h_base + h0;
@@ -172,6 +172,34 @@ __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], 
     }
     int yoffset = ((n * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
     Y[yoffset] = (acc < 0.0f) ? 0.0f : acc;
+  }
+}
+
+// From book chapter Figure 16.4
+static void conv_forward_valid(const float *X, const int xdims[4],
+                               const float *W, const int wdims[4], float *Y,
+                               const int ydims[4]) {
+  const auto filter_h   = wdims[0];
+  const auto filter_w   = wdims[1];
+  const auto in_channel = wdims[2];
+
+  for (const auto i : range(0, ydims[0])) { // sample size
+    for (const auto m : range(0, ydims[3])) { // num output maps
+      for (const auto w : range(0, ydims[2])) { // num out cols
+        for (const auto h : range(0, ydims[1])) { // num out rows
+          for (const auto p : range(0, filter_h)) { // mask height
+            for (const auto q : range(0, filter_w)) { // mask width
+              for (const auto c : range(0, in_channel)) { // num input maps (channels?)
+                const auto yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
+                const auto xoffset = i * xdims[1] * xdims[2] * xdims[3] + (h + p) * xdims[2] * xdims[3] + (w + q) * xdims[3] + c;
+                const auto woffset = p * wdims[1] * wdims[2] * wdims[3] + q * wdims[2] * wdims[3] + c * wdims[3] + m;
+                Y[yoffset] += X[xoffset] * W[woffset];
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
 
@@ -316,6 +344,17 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     // copy output data back from device
     check_success(cudaMemcpy(conv1Output, deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
+
+    // conv_forward_valid(x, xdims, conv1, conv1dims, a, adims);
+
+
+    // for(int i = 0; i < adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]; i++)
+    // {
+    //   if(a[i] != conv1Output[i]){
+    //     std::cout << "Failed at index " << i << "\n";
+    //   }
+    // }
+
 
     /*********************************************** AVG POOL 1 Layer ************************************************/
     // allocate memory for device pool 1 calculation
