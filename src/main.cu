@@ -135,45 +135,47 @@ __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], 
   h = h_base + h0;
   w = w_base + w0;
 
-  if(w < ydims[2] && h < ydims[1])
+  
+  float acc = 0.0f;
+  // sum over all input channels
+  for (int c = 0; c < wdims[2]  ; c++)
   {
-    float acc = 0.0f;
-    // sum over all input channels
-    for (int c = 0; c < wdims[2]  ; c++)
+    // load weights for W [m, c,..], h0 and w0 used as shorthand for threadIdx.x and threadIdx.y
+    int woffset = h0*wdims[1]*wdims[2]*wdims[3] + w0*wdims[2]*wdims[3] + c*wdims[3] + m;
+    if (( h0 < wdims[0]) && ( w0 < wdims[1])) W_shared[h0*wdims[1] + w0] = W[woffset];
+
+    __syncthreads();
+
+    // load tile from X[n, c,...] into shared memory
+    for (int i = h; i < h_base + X_tile_width; i += TILE_WIDTH)
     {
-
-      // load weights for W [m, c,..], h0 and w0 used as shorthand for threadIdx.x and threadIdx.y
-      int woffset = h0*wdims[1]*wdims[2]*wdims[3] + w0*wdims[2]*wdims[3] + c*wdims[3] + m;
-      if (( h0 < wdims[0]) && ( w0 < wdims[1])) W_shared[h0*wdims[0] + w0] = W[woffset];
-
-      __syncthreads();
-
-      // load tile from X[n, c,...] into shared memory
-      for (int i = h; i < h_base + X_tile_width; i += TILE_WIDTH)
+      for (int j = w; j < w_base + X_tile_width; j += TILE_WIDTH)
       {
-        for (int j = w; j < w_base + X_tile_width; j += TILE_WIDTH)
-        {
-          int xoffset = n*xdims[1]*xdims[2]*xdims[3] + i*xdims[2]*xdims[3] + j*xdims[3] + c;
-          int x_shared_offset = X_tile_width*(i - h_base) + (j - w_base);
-          X_shared[x_shared_offset] = X[xoffset];
-        }
+        int xoffset = n*xdims[1]*xdims[2]*xdims[3] + i*xdims[2]*xdims[3] + j*xdims[3] + c;
+        int x_shared_offset = X_tile_width*(i - h_base) + (j - w_base);
+        X_shared[x_shared_offset] = X[xoffset];
       }
-
-      __syncthreads();
-      for (int p = 0; p < wdims[0]; p++)
-      {
-        for (int q = 0; q < wdims[1]; q++)
-        {
-          int x_shared_offset = X_tile_width*(h0+p) + (w0+q);
-          int w_shared_offset = wdims[1]*p + q;
-          acc = acc + X_shared[x_shared_offset] * W_shared[w_shared_offset];
-        }
-      }
-      __syncthreads();
     }
-    int yoffset = ((n * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-    Y[yoffset] = (acc < 0.0f) ? 0.0f : acc;
+
+    __syncthreads();
+    
+    for (int p = 0; p < wdims[0]; p++)
+    {
+      for (int q = 0; q < wdims[1]; q++)
+      {
+        int x_shared_offset = X_tile_width*(h0+p) + (w0+q);
+        int w_shared_offset = wdims[1]*p + q;
+        acc = acc + X_shared[x_shared_offset] * W_shared[w_shared_offset];
+      }
+    }
+    
+    __syncthreads();
   }
+  
+  int yoffset = ((n * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
+  if(w < ydims[2] && h < ydims[1])
+    Y[yoffset] = (acc < 0.0f) ? 0.0f : acc;
+  
 }
 
 // From book chapter Figure 16.4
