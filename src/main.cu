@@ -103,107 +103,78 @@ static void loadModel(float *conv1, float *conv2, float *fc1, float *fc2) {
     check_success(H5Fclose(file_id));
 }
 
-
 // CUDA kernel for forward convolution path
 
 /* __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], int wdims[4], int ydims[4])
  * Local Variables:
- *      i = sample size
- *      m = num output maps
- *      w = num cols
- *      h = num rows
- *      p = mask height
- *      q = mask width
- *      c = num input maps
+ *      n = sample index
+ *      m = output map index
+ *      w = column index within an output map
+ *      h = row index within an output map
+ *      p = row index within a mask
+ *      q = column index within a mask
+ *      c = input map/channel index
  */
 __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], int wdims[4], int ydims[4])
 {
-  int n, m, h0, w0, h_base, w_base, h, w;
+    int n, m, h0, w0, h_base, w_base, h, w;
 
-  int X_tile_width = TILE_WIDTH + wdims[0]-1;
-  extern __shared__ float shmem[];
-  float* X_shared = &shmem[0];
-  float* W_shared = &shmem[X_tile_width * X_tile_width];
+    int X_tile_width = TILE_WIDTH + wdims[0]-1;
+    extern __shared__ float shmem[];
+    float* X_shared = &shmem[0];
+    float* W_shared = &shmem[X_tile_width * X_tile_width];
 
-  n = blockIdx.x;
-  m = blockIdx.y;
+    n = blockIdx.x;
+    m = blockIdx.y;
 
-  h0 = threadIdx.y;
-  w0 = threadIdx.x;
-  h_base = (blockIdx.z / ((ydims[2]-1)/TILE_WIDTH + 1))*TILE_WIDTH;
-  w_base = (blockIdx.z % ((ydims[1]-1)/TILE_WIDTH + 1))*TILE_WIDTH;
-  h = h_base + h0;
-  w = w_base + w0;
+    h0 = threadIdx.y;
+    w0 = threadIdx.x;
+    h_base = (blockIdx.z / ((ydims[2]-1)/TILE_WIDTH + 1))*TILE_WIDTH;
+    w_base = (blockIdx.z % ((ydims[1]-1)/TILE_WIDTH + 1))*TILE_WIDTH;
+    h = h_base + h0;
+    w = w_base + w0;
 
-  
-  float acc = 0.0f;
-  // sum over all input channels
-  for (int c = 0; c < wdims[2]  ; c++)
-  {
-    // load weights for W [m, c,..], h0 and w0 used as shorthand for threadIdx.x and threadIdx.y
-    int woffset = h0*wdims[1]*wdims[2]*wdims[3] + w0*wdims[2]*wdims[3] + c*wdims[3] + m;
-    if (( h0 < wdims[0]) && ( w0 < wdims[1])) W_shared[h0*wdims[1] + w0] = W[woffset];
+    float acc = 0.0f;
 
-    __syncthreads();
-
-    // load tile from X[n, c,...] into shared memory
-    for (int i = h; i < h_base + X_tile_width; i += TILE_WIDTH)
+    // sum over all input channels
+    for (int c = 0; c < wdims[2]  ; c++)
     {
-      for (int j = w; j < w_base + X_tile_width; j += TILE_WIDTH)
-      {
-        int xoffset = n*xdims[1]*xdims[2]*xdims[3] + i*xdims[2]*xdims[3] + j*xdims[3] + c;
-        int x_shared_offset = X_tile_width*(i - h_base) + (j - w_base);
-        X_shared[x_shared_offset] = X[xoffset];
-      }
-    }
+        // load weights for W [m, c,..], h0 and w0 used as shorthand for threadIdx.x and threadIdx.y
+        int woffset = h0*wdims[1]*wdims[2]*wdims[3] + w0*wdims[2]*wdims[3] + c*wdims[3] + m;
+        if (( h0 < wdims[0]) && ( w0 < wdims[1])) W_shared[h0*wdims[1] + w0] = W[woffset];
 
-    __syncthreads();
-    
-    for (int p = 0; p < wdims[0]; p++)
-    {
-      for (int q = 0; q < wdims[1]; q++)
-      {
-        int x_shared_offset = X_tile_width*(h0+p) + (w0+q);
-        int w_shared_offset = wdims[1]*p + q;
-        acc = acc + X_shared[x_shared_offset] * W_shared[w_shared_offset];
-      }
-    }
-    
-    __syncthreads();
-  }
-  
-  int yoffset = ((n * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-  if(w < ydims[2] && h < ydims[1])
-    Y[yoffset] = (acc < 0.0f) ? 0.0f : acc;
-  
-}
+        __syncthreads();
 
-// From book chapter Figure 16.4
-static void conv_forward_valid(const float *X, const int xdims[4],
-                               const float *W, const int wdims[4], float *Y,
-                               const int ydims[4]) {
-  const auto filter_h   = wdims[0];
-  const auto filter_w   = wdims[1];
-  const auto in_channel = wdims[2];
-
-  for (const auto i : range(0, ydims[0])) { // sample size
-    for (const auto m : range(0, ydims[3])) { // num output maps
-      for (const auto w : range(0, ydims[2])) { // num out cols
-        for (const auto h : range(0, ydims[1])) { // num out rows
-          for (const auto p : range(0, filter_h)) { // mask height
-            for (const auto q : range(0, filter_w)) { // mask width
-              for (const auto c : range(0, in_channel)) { // num input maps (channels?)
-                const auto yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-                const auto xoffset = i * xdims[1] * xdims[2] * xdims[3] + (h + p) * xdims[2] * xdims[3] + (w + q) * xdims[3] + c;
-                const auto woffset = p * wdims[1] * wdims[2] * wdims[3] + q * wdims[2] * wdims[3] + c * wdims[3] + m;
-                Y[yoffset] += X[xoffset] * W[woffset];
-              }
+        // load tile from X[n, c,...] into shared memory
+        for (int i = h; i < h_base + X_tile_width; i += TILE_WIDTH)
+        {
+            for (int j = w; j < w_base + X_tile_width; j += TILE_WIDTH)
+            {
+                int xoffset = n*xdims[1]*xdims[2]*xdims[3] + i*xdims[2]*xdims[3] + j*xdims[3] + c;
+                int x_shared_offset = X_tile_width*(i - h_base) + (j - w_base);
+                X_shared[x_shared_offset] = X[xoffset];
             }
-          }
         }
-      }
+
+        __syncthreads();
+
+        for (int p = 0; p < wdims[0]; p++)
+        {
+            for (int q = 0; q < wdims[1]; q++)
+            {
+                int x_shared_offset = X_tile_width*(h0+p) + (w0+q);
+                int w_shared_offset = wdims[1]*p + q;
+                acc = acc + X_shared[x_shared_offset] * W_shared[w_shared_offset];
+            }
+        }
+
+        __syncthreads();
     }
-  }
+
+    int yoffset = ((n * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
+
+    if(w < ydims[2] && h < ydims[1])
+        Y[yoffset] = (acc < 0.0f) ? 0.0f : acc;
 }
 
 // CUDA kernel for average pool
@@ -215,12 +186,10 @@ __global__ void average_pool_kernel(float *X, float *Y, int xdims[4], int ydims[
 
     h = (blockIdx.z / ((ydims[2]-1)/TILE_WIDTH + 1))*TILE_WIDTH + threadIdx.y;
     w = (blockIdx.z % ((ydims[1]-1)/TILE_WIDTH + 1))*TILE_WIDTH + threadIdx.x;
-    // h = blockIdx.z * blockDim.z + threadIdx.y;
-    // w = blockIdx.z * blockDim.z + threadIdx.x;
 
     int i = n;
 
-    if(w < ydims[1] && h < ydims[2]){
+    if(w < ydims[2] && h < ydims[1]){
         float acc = 0.0f;
         for (int p = 0; p < pool_size; p++) {
             for (int q = 0; q < pool_size; q++) {
@@ -272,20 +241,17 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1),
                          (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
     auto a = zeros<float>(adims);
-    auto conv1Output = zeros<float>(adims);
 
     // avg pool 1 vars
     const int pool_size = 2;
     const int bdims[]   = {adims[0], adims[1] / pool_size, adims[2] / pool_size,
                            adims[3]};
     auto b = zeros<float>(bdims);
-    auto pool1Output = zeros<float>(bdims);
 
     // conv layer 2 vars
     const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1),
                          (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
     auto c = zeros<float>(cdims);
-    auto conv2Output = zeros<float>(cdims);
 
     // avg pool 2 vars
     const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size,
@@ -345,27 +311,16 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     conv_forward_kernel<<<gridDimConv1, blockDimConv1, shmem_size_1>>>(deviceInputConv1, deviceMaskConv1, deviceOutputConv1, deviceIndims, deviceMaskdims, deviceOutdims);
     cudaDeviceSynchronize();
 
-    // copy output data back from device
-    check_success(cudaMemcpy(conv1Output, deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
+    // simply use the device output data as input for the next kernel launch
+    deviceInputPool1 = deviceOutputConv1;
 
-    // conv_forward_valid(x, xdims, conv1, conv1dims, a, adims);
-
-
-    // for(int i = 0; i < adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]; i++)
-    // {
-    //   if(a[i] != conv1Output[i]){
-    //     std::cout << "Failed at index " << i << "\n";
-    //   }
-    // }
-
+    // Free memory for conv1
+    cudaFree(deviceInputConv1);
+    cudaFree(deviceMaskConv1);
 
     /*********************************************** AVG POOL 1 Layer ************************************************/
     // allocate memory for device pool 1 calculation
-    check_success(cudaMalloc((void**)&deviceInputPool1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceOutputPool1, bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]*sizeof(float)));
-
-    // copy data to device
-    check_success(cudaMemcpy(deviceInputPool1, conv1Output, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
 
     // copy data dims to device
     check_success(cudaMemcpy(deviceIndims, adims, 4*sizeof(int),cudaMemcpyHostToDevice));
@@ -382,22 +337,20 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     average_pool_kernel<<<gridDimPool1, blockDimPool1>>>(deviceInputPool1, deviceOutputPool1, deviceIndims, deviceOutdims, pool_size);
     cudaDeviceSynchronize();
 
-    // copy output data back from device
-    check_success(cudaMemcpy(pool1Output, deviceOutputPool1, bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
+    // simply use the device output data as input for the next kernel launch
+    deviceInputConv2 = deviceOutputPool1;
 
     // avg pool memory freed
     cudaFree(deviceInputPool1);
-    cudaFree(deviceOutputPool1);
 
     /*********************************************** CONV 2 Layer ************************************************/
     // conv layer 2 setup
-    check_success(cudaMalloc((void**)&deviceInputConv2, bdims[0]*bdims[1]*bdims[2]*conv2dims[2]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceMaskConv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*xdims[3]*sizeof(float)));
 
     // copy data to device
-    check_success(cudaMemcpy(deviceInputConv2, pool1Output, bdims[0]*bdims[1]*bdims[2]*conv2dims[2]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
     check_success(cudaMemcpy(deviceMaskConv2, conv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
+
     // copy data dims to device
     check_success(cudaMemcpy(deviceIndims, bdims, 4*sizeof(int),cudaMemcpyHostToDevice));
     check_success(cudaMemcpy(deviceMaskdims, conv2dims, 4*sizeof(int),cudaMemcpyHostToDevice));
@@ -416,21 +369,16 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     conv_forward_kernel<<<gridDimConv2, blockDimConv2, shmem_size_2>>>(deviceInputConv2, deviceMaskConv2, deviceOutputConv2, deviceIndims, deviceMaskdims, deviceOutdims);
     cudaDeviceSynchronize();
 
-    // copy output data back from device
-    check_success(cudaMemcpy(conv2Output, deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*conv2dims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
+    // simply use the device output data as input for the next kernel launch
+    deviceInputPool2 = deviceOutputConv2;
 
     // freeing device memory for conv 2 layer
     cudaFree(deviceInputConv2);
-    cudaFree(deviceOutputConv2);
     cudaFree(deviceMaskConv2);
 
     /*********************************************** AVG POOL 2 Layer ************************************************/
     // allocate memory for device pool 2 calculation
-    check_success(cudaMalloc((void**)&deviceInputPool2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceOutputPool2, ddims[0]*ddims[1]*ddims[2]*ddims[3]*xdims[3]*sizeof(float)));
-
-    // copy data to device
-    check_success(cudaMemcpy(deviceInputPool2, conv2Output, cdims[0]*cdims[1]*cdims[2]*cdims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
 
     // copy data dims to device
     check_success(cudaMemcpy(deviceIndims, cdims, 4*sizeof(int),cudaMemcpyHostToDevice));
@@ -463,16 +411,13 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     /*********************************************** GAUSSIAN Layer ************************************************/
     argmax(f, fdims, out);
 
-    // host bufs
+    // freeing host buffers
     delete[] a;
     delete[] b;
     delete[] c;
     delete[] d;
     delete[] e;
     delete[] f;
-    delete[] conv1Output;
-    delete[] conv2Output;
-    delete[] pool1Output;
     delete[] pool2Output;
 
     // freeing device memory for dimensional data
