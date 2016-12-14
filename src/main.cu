@@ -17,6 +17,7 @@
 #define NUM_CHANNELS 1
 #define NUM_DIGITS 10
 
+// Same as block dimension
 #define TILE_WIDTH 16
 
 static int FLAGS_batch_size = 10000;
@@ -101,6 +102,136 @@ static void loadModel(float *conv1, float *conv2, float *fc1, float *fc2) {
 
     // Close the file
     check_success(H5Fclose(file_id));
+}
+
+// Kernel to compute C = A * B
+__global__ void matrixMultiplyShared(float *A, float *B, float *C,
+                                     int numARows, int numAColumns,
+                                     int numBRows, int numBColumns,
+                                     int numCRows, int numCColumns) {
+
+  	// Declare shared memory tiles Ads and Bds
+    __shared__ float Ads[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float Bds[TILE_WIDTH][TILE_WIDTH];
+
+  	// Get row and column of the output element this thread is working on
+		int CRow = blockIdx.y*blockDim.y + threadIdx.y;
+		int CCol = blockIdx.x*blockDim.x + threadIdx.x;
+
+  	// Idea: in each "phase," have threads collaboratively load subsets of A and B elements
+	  // into the shared memory before they individually use these elements in dot product calculation.
+  	// These A and B subsets are referred to as "tiles"; they are the same size as the block dimensions
+  	// (16 in our case).  We need enough phases such that the tiles span the entire image- we'll also
+  	// need checks to ensure our algorithm works in the case of output dimensions that are not a multiple of
+  	// the tile width.
+
+  	int phase; // loop variable for phases
+  	int dot; // loop variable for dot product in each phase
+  	float Cval = 0.0f; // Holds accumulating value of output element
+
+
+      // Including a +1 accounts for the case in which dimensions are not a multiple of TILE_WIDTH
+      // Why can't we use ceil??????
+      for(phase = 0; phase < (numAColumns-1)/TILE_WIDTH + 1; phase++)
+      {
+        // Don't try to load nonexistent elements
+        if((CRow < numCRows) && ((threadIdx.x + phase*TILE_WIDTH) < numAColumns))
+        {
+          // Each thread loads an element into shared memory
+          Ads[threadIdx.y][threadIdx.x] = A[CRow*numAColumns + threadIdx.x + phase*TILE_WIDTH];
+        }
+
+        // Don't try to load nonexistent elements
+        // Note: A and B have to be checked separately as they could have wildly different dimensions
+        if((CCol < numCColumns) && ((threadIdx.y + phase*TILE_WIDTH) < numBRows))
+        {
+          // Each thread loads an element into shared memory
+          Bds[threadIdx.y][threadIdx.x] = B[(threadIdx.y + phase*TILE_WIDTH)*numBColumns + CCol];
+        }
+
+        __syncthreads(); // Necessary to ensure all threads have loaded their data before proceeding with computation
+
+        for(dot = 0; dot < TILE_WIDTH; dot++) // Perform the dot product operation for current tile
+        {
+          // Verify that the tile elements don't step outside the bounds of our actual input matrices.
+          // Necessary when numAColumns % TILE_WIDTH != 0
+          if(((dot + phase*TILE_WIDTH) < numAColumns) && ((dot + phase*TILE_WIDTH) < numBRows))
+             Cval += Ads[threadIdx.y][dot]*Bds[dot][threadIdx.x];
+        }
+
+        __syncthreads(); // Necessary to ensure all threads have finished computation before overwriting shared memory.
+      }
+
+      // Check that the thread is mapped to a valid element
+      // Note: this cannot be performed above because threads that point outside the bounds of the output
+      // matrix are still needed to load tiles into shared memory.
+      if((CRow < numCRows) && (CCol < numCColumns))
+      {
+        C[CRow*numCColumns + CCol] = Cval;
+      }
+}
+
+// Sequential unroll implementation
+void unroll(int C, int H, int W, int K, int n, float* X, float* X_unroll, int xdims[4])
+{
+  int c, h, w, p, q, w_base, w_unroll, h_unroll, x_index;
+  int H_out = H – K + 1;
+  int W_out = W – K + 1;
+  int X_unroll_width = H_out*W_out;
+  int X_unroll_height = K*K*C;
+
+  for(c = 0; c < C; c++) // input map index
+  {
+    w_base = c * (K*K);
+    for(p = 0; p < K; p++)
+    {
+      for(q = 0; q < K; q++)
+      {
+        for(int h = 0; h < H_out; h++)
+        {
+          for(int w = 0; w < W_out; w ++)
+          {
+            w_unroll = w_base + p * K + q;
+            h_unroll = h * W_out + w;
+            x_index = n*xdims[1]*xdims[2]*xdims[3] + (h+p)*xdims[2]*xdims[3] + (w+q)*xdims[3] + c;
+
+            X_unroll[ n*X_unroll_width*X_unroll_height + h_unroll*X_unroll_width + w_unroll] = X[x_index];
+          }
+        }
+      }
+    }
+  }
+}
+
+void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* W_unroll, float* Y, int xdims[4], int ydims[4])
+{
+  int W_out = W – K + 1;
+  int H_out = H – K + 1;
+  int X_unroll_height = C * K * K;
+  int X_unroll_width = H_out * W_out;
+  float* X_unrolled = malloc(X_unroll_width * X_unroll_height * sizeof(float));
+  float * device_X_unrolled, * device_W_unroll, * device_Y;
+
+  check_success(cudaMalloc((void**)&device_X_unrolled, X_unroll_width * X_unroll_height * sizeof(float)));
+  check_success(cudaMalloc((void**)&device_W_unroll, M*C*K*K * sizeof(float)));
+  check_success(cudaMalloc((void**)&device_Y,  M*N*C*W_out*H_out* sizeof(float)));
+
+  for (int n = 0; n < N; n++)
+  {
+    unroll(C, H, W, K, n, X, X_unrolled);
+    //gemm(X_unroll_height, M, W_unroll, X_unrolled, W, Y[n]);
+
+    //@@ Initialize the grid and block dimensions here
+    dim3 blockDimension(TILE_WIDTH, TILE_WIDTH, 1);
+    dim3 gridDimension(ceil((1.0*X_unroll_width)/TILE_WIDTH, ceil((1.0*M)/TILE_WIDTH), 1);
+
+    matrixMultiplyShared<<<gridDimension, blockDimension>>>(W_unroll, X_unrolled, Y[n*ydims[1]*ydims[2]*ydims[3]],
+      M, C*K*K, X_unroll_height, X_unroll_width, M, X_unroll_width);
+  }
+
+  // Free memory
+  free(X_unrolled);
+  cudaFree(device_X_unrolled);
 }
 
 // CUDA kernel for forward convolution path
