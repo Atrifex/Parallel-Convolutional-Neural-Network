@@ -277,8 +277,6 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     float * deviceInputFullyForward1, * deviceOutputFullyForward1;       // fully connected 1 vars
     float * deviceInputFullyForward2, * deviceOutputFullyForward2;       // fully connected 2 vars
 
-    fully_forward(pool2Output, ddims2, fc1, fc1dims, e, edims);
-
     // allocate memory for device data dims
     check_success(cudaMalloc((void**)&deviceIndims, 4*sizeof(int)));
     check_success(cudaMalloc((void**)&deviceMaskdims, 4*sizeof(int)));
@@ -290,6 +288,15 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     check_success(cudaMalloc((void**)&deviceMaskConv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 
+    cudaStream_t stream0, stream1;
+    cudaStreamCreate(&stream0);
+    cudaStreamCreate(&stream1);
+    int n = xdims[0];
+    for(int i = 0; i < n; i += SEG_SIZE*2){
+      check_success(cudaMemCpyAsync(deviceInputConv1, x+i, SEG_SIZE*sizeof(float),cudaMemcpyHostToDevice, stream0));
+      check_success(cudaMemCpyAsync(deviceMaskConv1, conv1+i, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
+
+    }
     // copy data to device
     check_success(cudaMemcpy(deviceInputConv1, x, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
     check_success(cudaMemcpy(deviceMaskConv1, conv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
