@@ -216,7 +216,7 @@ static void fully_forward(const float *X, const int xdims[2], float *W,
     }
 }
 
-static void fully_forward_kernel(const float *X, const int xdims[2], float *W, const int wdims[2], float *Y, const int ydims[2])
+__global__ void fully_forward_kernel(const float *X, const int xdims[2], float *W, const int wdims[2], float *Y, const int ydims[2])
 {
     int i, j;
 
@@ -437,7 +437,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     dim3 blockDimFF1(512, 1, 1);
     dim3 gridDimFF1(((ddims2[0]*fc1dims[1]) - 1)/512 + 1, 1, 1);
 
-    fully_forward_kernel<<<gridDimFF1, blockDimFF1>>>(deviceInputFullyForward1, deviceIndims, deviceMaskFullyForward1, deviceMaskdims, deviceOutputFullyForward1, deviceOutdims)
+    fully_forward_kernel<<<gridDimFF1, blockDimFF1>>>(deviceInputFullyForward1, deviceIndims, deviceMaskFullyForward1, deviceMaskdims, deviceOutputFullyForward1, deviceOutdims);
     cudaDeviceSynchronize();
 
     // copy output data back from device
