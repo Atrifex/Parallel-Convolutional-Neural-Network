@@ -216,6 +216,27 @@ static void fully_forward(const float *X, const int xdims[2], float *W,
     }
 }
 
+static void fully_forward_kernel(const float *X, const int xdims[2], float *W, const int wdims[2], float *Y, const int ydims[2])
+{
+    int i, j;
+
+    j = blockDim.x*blockIdx.x + threadIdx.x;
+
+    // sample idx and fully connected layer idx
+    i = j / wdims[1];
+    j = j % wdims[1];
+
+    if(i < xdims[0] && j < wdims[1])
+    {
+        float sum = 0;
+        for (int k = 0; k < xdims[1]; k++) {
+            sum += X[i * xdims[1] + k] * W[k * wdims[1] + j];
+        }
+        Y[i * wdims[1] + j] = (sum < 0.0f) ? 0.0f : sum;
+    }
+
+}
+
 // Choose the guess with largest score
 static void argmax(const float *X, const int xdims[2], int *Y) {
     for (const auto i : range(0, xdims[0])) {
@@ -274,10 +295,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     float * deviceInputPool1, * deviceOutputPool1;                       // pool 1 vars
     float * deviceInputConv2, * deviceMaskConv2, * deviceOutputConv2;    // conv 2 vars
     float * deviceInputPool2, * deviceOutputPool2;                       // pool 2 vars
-    float * deviceInputFullyForward1, * deviceOutputFullyForward1;       // fully connected 1 vars
-    float * deviceInputFullyForward2, * deviceOutputFullyForward2;       // fully connected 2 vars
-
-    fully_forward(pool2Output, ddims2, fc1, fc1dims, e, edims);
+    float * deviceInputFullyForward1, *deviceMaskFullyForward1, * deviceOutputFullyForward1; // fully connected 1 vars
+    float * deviceInputFullyForward2, *deviceMaskFullyForward2, * deviceOutputFullyForward2; // fully connected 2 vars
 
     // allocate memory for device data dims
     check_success(cudaMalloc((void**)&deviceIndims, 4*sizeof(int)));
@@ -395,15 +414,38 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     average_pool_kernel<<<gridDimPool2, blockDimPool2>>>(deviceInputPool2, deviceOutputPool2, deviceIndims, deviceOutdims, pool_size);
     cudaDeviceSynchronize();
 
-    // copy output data back from device
-    check_success(cudaMemcpy(pool2Output, deviceOutputPool2, ddims[0]*ddims[1]*ddims[2]*ddims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
-
     // avg pool memory freed
     cudaFree(deviceInputPool2);
     cudaFree(deviceOutputPool2);
 
     /*********************************************** FULLY CONNECTED 1 Layer ************************************************/
+    // allocate memory for device fully connected layer 1
+    deviceInputFullyForward1 = deviceOutputPool2;
+    check_success(cudaMalloc((void**)&deviceMaskFullyForward1, ddims2[1]*fc1dims[1]*sizeof(float)));
+    check_success(cudaMalloc((void**)&deviceOutputFullyForward1, edims[0]*edims[1]*sizeof(float)));
+
+    // copy data to device
+    check_success(cudaMemcpy(deviceMaskFullyForward1, conv2, ddims2[1]*fc1dims[1]*sizeof(float),cudaMemcpyHostToDevice));
+    // copy data dims to device
+    check_success(cudaMemcpy(deviceIndims, ddims2, 2*sizeof(int),cudaMemcpyHostToDevice));
+    check_success(cudaMemcpy(deviceMaskdims, fc1dims, 2*sizeof(int),cudaMemcpyHostToDevice));
+    check_success(cudaMemcpy(deviceOutdims, edims, 2*sizeof(int),cudaMemcpyHostToDevice));
+
     fully_forward(pool2Output, ddims2, fc1, fc1dims, e, edims);
+
+    // kernel dims
+    dim3 blockDimFF1(512, 1, 1);
+    dim3 gridDimFF1(((ddims2[0]*fc1dims[1]) - 1)/512 + 1, 1, 1);
+
+    fully_forward_kernel<<<gridDimFF1, blockDimFF1>>>(deviceInputFullyForward1, deviceIndims, deviceMaskFullyForward1, deviceMaskdims, deviceOutputFullyForward1, deviceOutdims)
+    cudaDeviceSynchronize();
+
+    // copy output data back from device
+    check_success(cudaMemcpy(e, deviceOutputFullyForward1, edims[0]*edims[1]*sizeof(float), cudaMemcpyDeviceToHost));
+    // freeing device memory for conv 2 layer
+    cudaFree(deviceInputFullyForward1);
+    cudaFree(deviceMaskFullyForward1);
+    cudaFree(deviceOutputFullyForward1);
 
     /*********************************************** FULLY CONNECTED 2 Layer ************************************************/
     fully_forward(e, edims, fc2, fc2dims, f, fdims);
