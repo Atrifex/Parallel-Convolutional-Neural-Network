@@ -17,6 +17,7 @@
 #define NUM_CHANNELS 1
 #define NUM_DIGITS 10
 
+// Same as block dimension
 #define TILE_WIDTH 16
 
 static int FLAGS_batch_size = 10000;
@@ -101,6 +102,186 @@ static void loadModel(float *conv1, float *conv2, float *fc1, float *fc2) {
 
     // Close the file
     check_success(H5Fclose(file_id));
+}
+
+// Kernel to compute C = A * B
+__global__ void matrixMultiplyShared(float *A, float *B, float *C,
+                                     int numARows, int numAColumns,
+                                     int numBRows, int numBColumns,
+                                     int numCRows, int numCColumns) {
+
+  	// Declare shared memory tiles Ads and Bds
+    __shared__ float Ads[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float Bds[TILE_WIDTH][TILE_WIDTH];
+
+  	// Get row and column of the output element this thread is working on
+		int CRow = blockIdx.y*blockDim.y + threadIdx.y;
+		int CCol = blockIdx.x*blockDim.x + threadIdx.x;
+
+  	// Idea: in each "phase," have threads collaboratively load subsets of A and B elements
+	  // into the shared memory before they individually use these elements in dot product calculation.
+  	// These A and B subsets are referred to as "tiles"; they are the same size as the block dimensions
+  	// (16 in our case).  We need enough phases such that the tiles span the entire image- we'll also
+  	// need checks to ensure our algorithm works in the case of output dimensions that are not a multiple of
+  	// the tile width.
+
+  	int phase; // loop variable for phases
+  	int dot; // loop variable for dot product in each phase
+  	float Cval = 0.0f; // Holds accumulating value of output element
+
+
+      // Including a +1 accounts for the case in which dimensions are not a multiple of TILE_WIDTH
+      // Why can't we use ceil??????
+      for(phase = 0; phase < (numAColumns-1)/TILE_WIDTH + 1; phase++)
+      {
+        // Don't try to load nonexistent elements
+        if((CRow < numCRows) && ((threadIdx.x + phase*TILE_WIDTH) < numAColumns))
+        {
+          // Each thread loads an element into shared memory
+          Ads[threadIdx.y][threadIdx.x] = A[CRow*numAColumns + threadIdx.x + phase*TILE_WIDTH];
+        }
+
+        // Don't try to load nonexistent elements
+        // Note: A and B have to be checked separately as they could have wildly different dimensions
+        if((CCol < numCColumns) && ((threadIdx.y + phase*TILE_WIDTH) < numBRows))
+        {
+          // Each thread loads an element into shared memory
+          Bds[threadIdx.y][threadIdx.x] = B[(threadIdx.y + phase*TILE_WIDTH)*numBColumns + CCol];
+        }
+
+        __syncthreads(); // Necessary to ensure all threads have loaded their data before proceeding with computation
+
+        for(dot = 0; dot < TILE_WIDTH; dot++) // Perform the dot product operation for current tile
+        {
+          // Verify that the tile elements don't step outside the bounds of our actual input matrices.
+          // Necessary when numAColumns % TILE_WIDTH != 0
+          if(((dot + phase*TILE_WIDTH) < numAColumns) && ((dot + phase*TILE_WIDTH) < numBRows))
+             Cval += Ads[threadIdx.y][dot]*Bds[dot][threadIdx.x];
+        }
+
+        __syncthreads(); // Necessary to ensure all threads have finished computation before overwriting shared memory.
+      }
+
+      // Check that the thread is mapped to a valid element
+      // Note: this cannot be performed above because threads that point outside the bounds of the output
+      // matrix are still needed to load tiles into shared memory.
+      if((CRow < numCRows) && (CCol < numCColumns))
+      {
+        C[CRow*numCColumns + CCol] = Cval;
+      }
+}
+
+// Sequential unroll implementation
+void unroll(int C, int H, int W, int K, int n, float* X, float* X_unroll, int xdims[4])
+{
+  int c, h, w, p, q, w_base, w_unroll, h_unroll, x_index;
+  int H_out = H - K + 1;
+  int W_out = W - K + 1;
+  int W_unroll = C * K * K;
+  int H_unroll = H_out * W_out;
+
+  for(c = 0; c < C; c++) // input map index
+  {
+    w_base = c * (K*K);
+    for(p = 0; p < K; p++)
+    {
+      for(q = 0; q < K; q++)
+      {
+        for(h = 0; h < H_out; h++)
+        {
+          for(w = 0; w < W_out; w ++)
+          {
+            w_unroll = w_base + p * K + q;
+            h_unroll = h * W_out + w;
+            x_index = n*xdims[1]*xdims[2]*xdims[3] + (h+p)*xdims[2]*xdims[3] + (w+q)*xdims[3] + c;
+
+            X_unroll[h_unroll*W_unroll + w_unroll] = X[x_index];
+          }
+        }
+      }
+    }
+  }
+}
+
+void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* W_unrolled, float* Y, int xdims[4], const int ydims[4])
+{
+  int W_out = W - K + 1;
+  int H_out = H - K + 1;
+  int W_unroll = C * K * K;
+  int H_unroll = H_out * W_out;
+  float* X_unrolled0 = (float*)malloc(W_unroll * H_unroll * sizeof(float));
+  float* X_unrolled1 = (float*)malloc(W_unroll * H_unroll * sizeof(float));
+  float* X_unrolled2 = (float*)malloc(W_unroll * H_unroll * sizeof(float));
+  float * device_X_unrolled0, * device_X_unrolled1, * device_X_unrolled2, * device_W_unrolled, * device_Y;
+
+  check_success(cudaMalloc((void**)&device_X_unrolled0, W_unroll * H_unroll * sizeof(float)));
+  check_success(cudaMalloc((void**)&device_X_unrolled1, W_unroll * H_unroll * sizeof(float)));
+  check_success(cudaMalloc((void**)&device_X_unrolled2, W_unroll * H_unroll * sizeof(float)));
+  check_success(cudaMalloc((void**)&device_W_unrolled, M*C*K*K * sizeof(float)));
+  check_success(cudaMalloc((void**)&device_Y,  M*N*C*W_out*H_out* sizeof(float)));
+
+  // Initialize the grid and block dimensions
+  dim3 blockDimension(TILE_WIDTH, TILE_WIDTH, 1);
+  dim3 gridDimension(ceil((1.0*M)/TILE_WIDTH), ceil((1.0*H_unroll)/TILE_WIDTH), 1);
+
+  check_success(cudaMemcpy(device_W_unrolled, W_unrolled, M*C*K*K * sizeof(float), cudaMemcpyHostToDevice));
+
+  cudaStream_t stream0, stream1, stream2;
+  cudaStreamCreate(&stream0);
+  cudaStreamCreate(&stream1);
+  cudaStreamCreate(&stream2);
+
+  for (int n = 0; n < N; n+=3)
+  {
+    unroll(C, H, W, K, n, X, X_unrolled0, xdims);
+    if(n+1 < N)
+      unroll(C, H, W, K, n+1, X, X_unrolled1, xdims);
+    if(n+2 < N)
+      unroll(C, H, W, K, n+2, X, X_unrolled2, xdims);
+    //gemm(X_unroll_height, M, W_unroll, X_unrolled, W, Y[n]);
+
+    check_success(cudaMemcpyAsync(device_X_unrolled0, X_unrolled0, W_unroll * H_unroll * sizeof(float), cudaMemcpyHostToDevice, stream0));
+    if(n+1 < N){
+      check_success(cudaMemcpyAsync(device_X_unrolled1, X_unrolled1, W_unroll * H_unroll * sizeof(float), cudaMemcpyHostToDevice, stream1));
+    }
+    if(n+2 < N){
+      check_success(cudaMemcpyAsync(device_X_unrolled2, X_unrolled2, W_unroll * H_unroll * sizeof(float), cudaMemcpyHostToDevice, stream2));
+    }
+    //check_success(cudaMemcpy(device_X_unrolled, X_unrolled, W_unroll * H_unroll * sizeof(float), cudaMemcpyHostToDevice));
+
+    matrixMultiplyShared<<<gridDimension, blockDimension, 0, stream0>>>(device_X_unrolled0, device_W_unrolled, &(device_Y[n*ydims[1]*ydims[2]*ydims[3]]),
+      H_unroll, W_unroll, C*K*K, M, H_unroll, M);
+    if(n+1 < N){
+      matrixMultiplyShared<<<gridDimension, blockDimension, 0, stream1>>>(device_X_unrolled1, device_W_unrolled, &(device_Y[(n+1)*ydims[1]*ydims[2]*ydims[3]]),
+        H_unroll, W_unroll, C*K*K, M, H_unroll, M);
+    }
+    if(n+2 < N){
+      matrixMultiplyShared<<<gridDimension, blockDimension, 0, stream2>>>(device_X_unrolled2, device_W_unrolled, &(device_Y[(n+2)*ydims[1]*ydims[2]*ydims[3]]),
+        H_unroll, W_unroll, C*K*K, M, H_unroll, M);
+    }
+
+    check_success(cudaMemcpyAsync(&(Y[(n)*ydims[1]*ydims[2]*ydims[3]]), &(device_Y[(n)*ydims[1]*ydims[2]*ydims[3]]), ydims[1]*ydims[2]*ydims[3]* sizeof(float), cudaMemcpyDeviceToHost, stream0));
+    if(n+1 < N){
+      check_success(cudaMemcpyAsync(&(Y[(n+1)*ydims[1]*ydims[2]*ydims[3]]), &(device_Y[(n+1)*ydims[1]*ydims[2]*ydims[3]]), ydims[1]*ydims[2]*ydims[3]* sizeof(float), cudaMemcpyDeviceToHost, stream1));
+    }
+    if(n+2 < N){
+      check_success(cudaMemcpyAsync(&(Y[(n+2)*ydims[1]*ydims[2]*ydims[3]]), &(device_Y[(n+2)*ydims[1]*ydims[2]*ydims[3]]), ydims[1]*ydims[2]*ydims[3]* sizeof(float), cudaMemcpyDeviceToHost, stream2));
+    }
+  }
+
+  cudaDeviceSynchronize();
+  // Copy memory back to host
+
+
+  // Free memory
+  free(X_unrolled0);
+  free(X_unrolled1);
+  free(X_unrolled2);
+  cudaFree(device_X_unrolled0);
+  cudaFree(device_X_unrolled1);
+  cudaFree(device_X_unrolled2);
+  cudaFree(device_W_unrolled);
+  cudaFree(device_Y);
 }
 
 // CUDA kernel for forward convolution path
@@ -241,6 +422,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1),
                          (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
     auto a = zeros<float>(adims);
+    float * conv1Output = (float*)malloc(xdims[0]*conv1dims[3]*conv1dims[2]*(xdims[1] - conv1dims[0] + 1)*(xdims[2] - conv1dims[1] + 1)* sizeof(float));
 
     // avg pool 1 vars
     const int pool_size = 2;
@@ -252,6 +434,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1),
                          (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
     auto c = zeros<float>(cdims);
+    float * conv2Output = (float*)malloc(bdims[0]*conv2dims[3]*conv2dims[2]*(bdims[1] - conv2dims[0] + 1)*(bdims[2] - conv2dims[1] + 1)* sizeof(float));
 
     // avg pool 2 vars
     const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size,
@@ -283,47 +466,14 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     check_success(cudaMalloc((void**)&deviceOutdims, 4*sizeof(int)));
 
     /*********************************************** CONV 1 Layer ************************************************/
-    // allocate memory for device data
-    check_success(cudaMalloc((void**)&deviceInputConv1, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float)));
-    check_success(cudaMalloc((void**)&deviceMaskConv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float)));
-    check_success(cudaMalloc((void**)&deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 
-    cudaStream_t stream0, stream1;
-    cudaStreamCreate(&stream0);
-    cudaStreamCreate(&stream1);
-    int n = xdims[0];
-    for(int i = 0; i < n; i += SEG_SIZE*2){
-      check_success(cudaMemCpyAsync(deviceInputConv1, x+i, SEG_SIZE*sizeof(float),cudaMemcpyHostToDevice, stream0));
-      check_success(cudaMemCpyAsync(deviceMaskConv1, conv1+i, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
+    // Done using unrolling and matrix-matrix multiplication
+    convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, conv1Output, xdims, adims);
 
-    }
-    // copy data to device
-    check_success(cudaMemcpy(deviceInputConv1, x, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
-    check_success(cudaMemcpy(deviceMaskConv1, conv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
-    // copy data dims to device
-    check_success(cudaMemcpy(deviceIndims, xdims, 4*sizeof(int),cudaMemcpyHostToDevice));
-    check_success(cudaMemcpy(deviceMaskdims, conv1dims, 4*sizeof(int),cudaMemcpyHostToDevice));
-    check_success(cudaMemcpy(deviceOutdims, adims, 4*sizeof(int),cudaMemcpyHostToDevice));
+    check_success(cudaMalloc((void**)&deviceInputPool1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 
-    // kernel dims
-    int N = xdims[0];
-    int M = conv1dims[3];
-    int Z = ((adims[2]-1)/TILE_WIDTH+1)*((adims[1]-1)/TILE_WIDTH+1);
-    dim3 blockDimConv1(TILE_WIDTH, TILE_WIDTH, 1);
-    dim3 gridDimConv1(N, M, Z);
-
-    unsigned int shmem_size_1 = sizeof(float)*((TILE_WIDTH + conv1dims[1] - 1)*(TILE_WIDTH + conv1dims[0] - 1) + conv1dims[0]*conv1dims[1]);
-
-    // first kernel launch
-    conv_forward_kernel<<<gridDimConv1, blockDimConv1, shmem_size_1>>>(deviceInputConv1, deviceMaskConv1, deviceOutputConv1, deviceIndims, deviceMaskdims, deviceOutdims);
-    cudaDeviceSynchronize();
-
-    // simply use the device output data as input for the next kernel launch
-    deviceInputPool1 = deviceOutputConv1;
-
-    // Free memory for conv1
-    cudaFree(deviceInputConv1);
-    cudaFree(deviceMaskConv1);
+    check_success(cudaMemcpy(deviceInputPool1, conv1Output, xdims[0]*conv1dims[3]*conv1dims[2]*(xdims[1] - conv1dims[0] + 1)*(xdims[2] - conv1dims[1] + 1)* sizeof(float),
+                              cudaMemcpyHostToDevice));
 
     /*********************************************** AVG POOL 1 Layer ************************************************/
     // allocate memory for device pool 1 calculation
@@ -334,9 +484,9 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     check_success(cudaMemcpy(deviceOutdims, bdims, 4*sizeof(int),cudaMemcpyHostToDevice));
 
     // kernel dims
-    N = adims[0];
-    M = conv1dims[3];
-    Z = ((bdims[2]-1)/TILE_WIDTH+1)*((bdims[1]-1)/TILE_WIDTH+1);//adims[2]*adims[1];
+    int N = adims[0];
+    int M = conv1dims[3];
+    int Z = ((bdims[2]-1)/TILE_WIDTH+1)*((bdims[1]-1)/TILE_WIDTH+1);//adims[2]*adims[1];
     dim3 blockDimPool1(TILE_WIDTH, TILE_WIDTH, 1);
     dim3 gridDimPool1(N, M, Z);
 
@@ -351,6 +501,9 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     cudaFree(deviceInputPool1);
 
     /*********************************************** CONV 2 Layer ************************************************/
+
+    //convLayer_forward(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], x, conv2, conv2Output, bdims, cdims);
+
     // conv layer 2 setup
     check_success(cudaMalloc((void**)&deviceMaskConv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*xdims[3]*sizeof(float)));
     check_success(cudaMalloc((void**)&deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*xdims[3]*sizeof(float)));
@@ -426,6 +579,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     delete[] e;
     delete[] f;
     delete[] pool2Output;
+    delete[] conv1Output;
+    delete[] conv2Output;
 
     // freeing device memory for dimensional data
     cudaFree(deviceIndims);
