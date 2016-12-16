@@ -239,7 +239,7 @@ __global__ void unroll_gpu(int C, int H, int W, int K, int n, float* X, float* X
       for(q = 0; q < K; q++)
       {
         h_unroll = h_base + p * K + q;
-        x_index = n*H*W*C + (h_out+p)*W*C + (w_out+q)*C + c;
+        x_index = /*n*H*W*C + */(h_out+p)*W*C + (w_out+q)*C + c;
         X_unroll[h_unroll*W_unroll + w_unroll] = X[x_index];
       }
     }
@@ -254,8 +254,8 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   int H_unroll = C * K * K;
   int W_unroll = H_out * W_out;
   float* X_unrolled = (float*)malloc(W_unroll * H_unroll * sizeof(float));
-  float * device_X0, * device_X1, * device_X2;
-  float * device_X_unrolled0, * device_X_unrolled1, * device_X_unrolled2;
+  float * device_X, * device_X0, * device_X1, * device_X2;
+  float * device_X_unrolled, * device_X_unrolled0, * device_X_unrolled1, * device_X_unrolled2;
   float * device_W, * device_W_unrolled, * device_Y, * device_Y_unrolled;
 
   //  Allocate device memory and dim3's for filter unrolling
@@ -271,6 +271,8 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   cudaDeviceSynchronize();
 
   // Next, allocate device memory for input unrolling
+  // check_success(cudaMalloc((void**)&device_X, N * C * H * W * sizeof(float)));
+  // check_success(cudaMalloc((void**)&device_X_unrolled, W_unroll * H_unroll * sizeof(float)));
   check_success(cudaMalloc((void**)&device_X_unrolled0, W_unroll * H_unroll * sizeof(float)));
   check_success(cudaMalloc((void**)&device_X_unrolled1, W_unroll * H_unroll * sizeof(float)));
   check_success(cudaMalloc((void**)&device_X_unrolled2, W_unroll * H_unroll * sizeof(float)));
@@ -288,7 +290,7 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   cudaStreamCreate(&stream1);
   cudaStreamCreate(&stream2);
 
-  for (int n = 0; n < N; n+=3)
+  for (int n = 0; n < N; n++)
   {
 
     // Copy over input memory to the device_X
@@ -308,7 +310,7 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
     if(n+2 < N){
       unroll_gpu<<<ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), CUDA_MAX_NUM_THREADS, 0, stream2>>>(C, H, W, K, n+2, device_X2, device_X_unrolled2);
     }
-    //cudaDeviceSynchronize();
+    // cudaDeviceSynchronize();
 
     // Matrix multiplication
     matrixMultiplyShared<<<gridDimension2, blockDimension2, 0 , stream0>>>(device_W_unrolled, device_X_unrolled0, &(device_Y_unrolled[n*ydims[1]*ydims[2]*ydims[3]]),
