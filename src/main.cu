@@ -216,6 +216,7 @@ __global__ void rerollOutput(int M, int N, int H_out, int W_out, float * Y_unrol
   }
 }
 
+/*
 // Parallel input unroll implementation
 // Modified to work with streams
 __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll)
@@ -229,7 +230,57 @@ __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll
 
   if (t < C * W_unroll)
   {
-    c = t / W_unroll;
+    //c = t / W_unroll;
+    //s = t % W_unroll;
+    c = t % C; // Idea: change thread-to-element mapping to get coalesced memory access
+    s = t/C;
+    h_out = s / W_out;
+    w_out = s % W_out;
+    w_unroll = h_out * W_out + w_out;
+    h_base = c * K * K;
+    for(p = 0; p < K; p++)
+    {
+      for(q = 0; q < K; q++)
+      {
+        h_unroll = h_base + p * K + q;
+        x_index = (h_out+p)*W*C + (w_out+q)*C + c;
+        X_unroll[h_unroll*W_unroll + w_unroll] = X[x_index]; // Read accesses should be at least partially coalesced now
+      }
+    }
+  }
+}
+*/
+
+// Input unroll implementation that uses shared memory
+__global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll)
+{
+  // Idea: Launch threads in 2-d blocks of H rows, W columns.
+  // Launch C 1-D grids total.
+  // Each thread will load one input element into shared memory (per-block collaboration)
+
+  extern __shared__ float X_shared[];
+
+  int h_out, w_out, w_unroll, h_base;
+
+  // Thread mapping
+  int w = threadIdx.x;
+  int h = threadIdx.y;
+  int c = blockIdx.x;
+  int t = blockIdx.x*blockDim.y*blockDim.x + threadIdx.y*blockDim.x + threadIdx.x;
+
+  // Output/unrolling variables
+  int H_out = H - K + 1;
+  int W_out = W - K + 1;
+  int W_unroll = H_out * W_out;
+
+  // Load input elements into shared memory
+  if(w < W && h < H)
+    X_shared[h*W + w] = X[h*W*C + w*C + c];
+
+  __syncthreads();
+
+  if(h < H_out && w < W_out)
+  {
     s = t % W_unroll;
     h_out = s / W_out;
     w_out = s % W_out;
@@ -241,10 +292,11 @@ __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll
       {
         h_unroll = h_base + p * K + q;
         x_index = (h_out+p)*W*C + (w_out+q)*C + c;
-        X_unroll[h_unroll*W_unroll + w_unroll] = X[x_index]; // Unfortunately, we don't get coalesced read access
+        X_unroll[h_unroll*W_unroll + w_unroll] = X[x_index]; // Read accesses should be at least partially coalesced now
       }
     }
   }
+
 }
 
 // Forward convolutional layer: uses unrolling + matrix multiplication!
@@ -448,9 +500,16 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     check_success(cudaMalloc((void**)&deviceOutdims, 4*sizeof(int)));
 
     /*********************************************** CONV 1 Layer ************************************************/
-
+ const auto start1 = now();
     // Done using unrolling and matrix-matrix multiplication
     convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, conv1Output, adims);
+
+const auto end1 = now();
+
+const auto elapsed1 =
+    std::chrono::duration<double, std::milli>(end1 - start1).count();
+
+std::cout << "conv1 layer took " << elapsed1 << " milliseconds" << std::endl;
 
     check_success(cudaMalloc((void**)&deviceInputPool1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 
@@ -482,9 +541,16 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     cudaFree(deviceOutputPool1);
 
     /*********************************************** CONV 2 Layer ************************************************/
-
+const auto start2 = now();
     // Done using unrolling and matrix-matrix multiplication
     convLayer_forward(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], b, conv2, conv2Output, cdims);
+
+const auto end2 = now();
+
+const auto elapsed2 =
+    std::chrono::duration<double, std::milli>(end2 - start2).count();
+
+std::cout << "conv2 layer took " << elapsed2 << " milliseconds" << std::endl;
 
     check_success(cudaMalloc((void**)&deviceInputPool2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float)));
 
