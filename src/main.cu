@@ -366,41 +366,17 @@ __global__ void average_pool_kernel(float *X, float *Y, int xdims[4], int ydims[
     h = (blockIdx.z / ((ydims[2]-1)/TILE_WIDTH + 1))*TILE_WIDTH + threadIdx.y;
     w = (blockIdx.z % ((ydims[1]-1)/TILE_WIDTH + 1))*TILE_WIDTH + threadIdx.x;
 
-    int i = n;
-
     if(w < ydims[2] && h < ydims[1]){
         float acc = 0.0f;
         for (int p = 0; p < pool_size; p++) {
             for (int q = 0; q < pool_size; q++) {
-                int xoffset = i * xdims[1] * xdims[2] * xdims[3] + (pool_size * h + p) * xdims[2] * xdims[3] + (pool_size * w + q) * xdims[3] + m;
+                int xoffset = n * xdims[1] * xdims[2] * xdims[3] + (pool_size * h + p) * xdims[2] * xdims[3] + (pool_size * w + q) * xdims[3] + m;
                 acc += X[xoffset] / (1.0f * pool_size * pool_size);
             }
         }
-        int yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
+        int yoffset = ((n * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
         Y[yoffset] = acc;
     }
-}
-
-// Parallelized fully_forward
-__global__ void fully_forward_kernel(const float *X, const int xdims[2], float *W, const int wdims[2], float *Y, const int ydims[2])
-{
-    int i, j;
-
-    j = blockDim.x*blockIdx.x + threadIdx.x;
-
-    // sample idx and fully connected layer idx
-    i = j / wdims[1];
-    j = j % wdims[1];
-
-    if(i < xdims[0] && j < wdims[1])
-    {
-        float sum = 0;
-        for (int k = 0; k < xdims[1]; k++) {
-            sum += X[i * xdims[1] + k] * W[k * wdims[1] + j];
-        }
-        Y[i * wdims[1] + j] = (sum < 0.0f) ? 0.0f : sum;
-    }
-
 }
 
 // Choose the guess with largest score
@@ -544,18 +520,17 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     // copy data to device
     check_success(cudaMemcpy(deviceMaskFullyForward1, fc1, ddims2[1]*fc1dims[1]*sizeof(float),cudaMemcpyHostToDevice));
-    // copy data dims to device
-    check_success(cudaMemcpy(deviceIndims, ddims2, 2*sizeof(int),cudaMemcpyHostToDevice));
-    check_success(cudaMemcpy(deviceMaskdims, fc1dims, 2*sizeof(int),cudaMemcpyHostToDevice));
-    check_success(cudaMemcpy(deviceOutdims, edims, 2*sizeof(int),cudaMemcpyHostToDevice));
 
-    // kernel dims
-    dim3 blockDimFF1(512, 1, 1);
-    dim3 gridDimFF1(((ddims2[0]*fc1dims[1]) - 1)/512 + 1, 1, 1);
-    fully_forward_kernel<<<gridDimFF1, blockDimFF1>>>(deviceInputFullyForward1, deviceIndims, deviceMaskFullyForward1, deviceMaskdims, deviceOutputFullyForward1, deviceOutdims);
+    // Initialize the grid and block dimensions
+    dim3 blockDimensionFF1(TILE_WIDTH, TILE_WIDTH, 1);
+    dim3 gridDimensionFF1(ceil((1.0*edims[1])/TILE_WIDTH), ceil((1.0*edims[0])/TILE_WIDTH), 1);
+
+    // Use tiled matrix multiplication for fc1 layer
+    matrixMultiplyShared<<<gridDimensionFF1, blockDimensionFF1>>>(deviceInputFullyForward1, deviceMaskFullyForward1, deviceOutputFullyForward1, ddims2[0], ddims2[1],
+                                                                  fc1dims[0], fc1dims[1], edims[0], edims[1]);
     cudaDeviceSynchronize();
 
-    // freeing device memory for conv 2 layer
+    // freeing device memory for fc1 layer
     cudaFree(deviceInputFullyForward1);
     cudaFree(deviceMaskFullyForward1);
 
@@ -567,20 +542,20 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     // copy data to device
     check_success(cudaMemcpy(deviceMaskFullyForward2, fc2, edims[1]*fc2dims[1]*sizeof(float),cudaMemcpyHostToDevice));
-    // copy data dims to device
-    check_success(cudaMemcpy(deviceIndims, edims, 2*sizeof(int),cudaMemcpyHostToDevice));
-    check_success(cudaMemcpy(deviceMaskdims, fc2dims, 2*sizeof(int),cudaMemcpyHostToDevice));
-    check_success(cudaMemcpy(deviceOutdims, fdims, 2*sizeof(int),cudaMemcpyHostToDevice));
 
-    // kernel dims
-    dim3 blockDimFF2(512, 1, 1);
-    dim3 gridDimFF2(((edims[0]*fc2dims[1]) - 1)/512 + 1, 1, 1);
-    fully_forward_kernel<<<gridDimFF2, blockDimFF2>>>(deviceInputFullyForward2, deviceIndims, deviceMaskFullyForward2, deviceMaskdims, deviceOutputFullyForward2, deviceOutdims);
+    // Initialize the grid and block dimensions
+    dim3 blockDimensionFF2(TILE_WIDTH, TILE_WIDTH, 1);
+    dim3 gridDimensionFF2(ceil((1.0*fdims[1])/TILE_WIDTH), ceil((1.0*fdims[0])/TILE_WIDTH), 1);
+
+    // Use tiled matrix multiplication to implement fc2 layer
+    matrixMultiplyShared<<<gridDimensionFF2, blockDimensionFF2>>>(deviceInputFullyForward2, deviceMaskFullyForward2, deviceOutputFullyForward2, edims[0], edims[1],
+                                                                  fc2dims[0], fc2dims[1], fdims[0], fdims[1]);
     cudaDeviceSynchronize();
 
     // copy output data back from device
     check_success(cudaMemcpy(f, deviceOutputFullyForward2, fdims[0]*fdims[1]*sizeof(float), cudaMemcpyDeviceToHost));
-    // freeing device memory for conv 2 layer
+
+    // freeing device memory for fc2 layer
     cudaFree(deviceInputFullyForward2);
     cudaFree(deviceMaskFullyForward2);
     cudaFree(deviceOutputFullyForward2);
