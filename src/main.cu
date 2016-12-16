@@ -167,7 +167,7 @@ __global__ void matrixMultiplyShared(float *A, float *B, float *C,
       // matrix are still needed to load tiles into shared memory.
       if((CRow < numCRows) && (CCol < numCColumns))
       {
-        C[CRow*numCColumns + CCol] = Cval;
+        C[CRow*numCColumns + CCol] = (Cval < 0.0f) ? 0.0f : Cval;
       }
 }
 
@@ -233,9 +233,9 @@ void unroll(int C, int H, int W, int K, int n, float* X, float* X_unroll, int xd
           {
             w_unroll = w_base + p * K + q;
             h_unroll = h * W_out + w;
-            x_index = n*xdims[1]*xdims[2]*xdims[3] + (h+p)*xdims[2]*xdims[3] + (w+q)*xdims[3] + c;
+            x_index = n*H*W*C + (h+p)*W*C + (w+q)*C + c;
 
-            X_unroll[h_unroll*W_unroll + w_unroll] = X[x_index];
+            X_unroll[w_unroll*H_unroll + h_unroll] = X[x_index];
           }
         }
       }
