@@ -171,7 +171,47 @@ __global__ void matrixMultiplyShared(float *A, float *B, float *C,
       }
 }
 
-// Sequential unroll implementation
+// Parallel implementation of the filter unroll
+__global__ void unrollFilters(int C, int M, int K, float * W, float * W_unroll)
+{
+  int p, q, c, m;
+
+  m = threadIdx.x;
+  c = blockIdx.x;
+
+  if(c < C && m < M)
+  {
+    for(p = 0; p < K; p++)
+    {
+      for(q = 0; q < K; q++)
+      {
+        W_unroll[m*C*K*K + c*K*K + p*K + q] = W[p*K*C*M + q*C*M + c*M + m]; // Should get coalesced read access!
+      }
+    }
+  }
+}
+
+// Parallel implementation of the output reroll
+__global__ void rerollOutput(int M, int N, int H_out, int W_out, float * Y_unrolled, float * Y)
+{
+  int m, n, h, w;
+
+  m = threadIdx.x;
+  n = blockIdx.x;
+
+  if(m < M && n < N)
+  {
+    for(h = 0; h < H_out; h++)
+    {
+      for(w = 0; w < W_out; w++)
+      {
+        Y[((n * H_out + h) * W_out + w) *M + m] = Y_unrolled[n*M*H_out*W_out + m*H_out*W_out + h*W_out + w];
+      }
+    }
+  }
+}
+
+// Sequential input unroll implementation
 void unroll(int C, int H, int W, int K, int n, float* X, float* X_unroll, int xdims[4])
 {
   int c, h, w, p, q, w_base, w_unroll, h_unroll, x_index;
@@ -203,24 +243,34 @@ void unroll(int C, int H, int W, int K, int n, float* X, float* X_unroll, int xd
   }
 }
 
-void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* W_unrolled, float* Y, int xdims[4], const int ydims[4])
+void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* Mask, float* Y, int xdims[4], const int ydims[4])
 {
   int W_out = W - K + 1;
   int H_out = H - K + 1;
   int W_unroll = C * K * K;
   int H_unroll = H_out * W_out;
   float* X_unrolled = (float*)malloc(W_unroll * H_unroll * sizeof(float));
-  float * device_X_unrolled, * device_W_unrolled, * device_Y;
+  float * device_X_unrolled, * device_W, * device_W_unrolled, * device_Y, * device_Y_unrolled;
 
-  check_success(cudaMalloc((void**)&device_X_unrolled, W_unroll * H_unroll * sizeof(float)));
+  //  Allocate device memory and dim3's for filter unrolling
   check_success(cudaMalloc((void**)&device_W_unrolled, M*C*K*K * sizeof(float)));
-  check_success(cudaMalloc((void**)&device_Y,  M*N*W_out*H_out* sizeof(float)));
+  check_success(cudaMalloc((void**)&device_W, M*C*K*K * sizeof(float)));
+  dim3 blockDimension1(M, 1, 1);
+  dim3 gridDimension1(C, 1, 1);
+
+  // Copy memory and aunch kernel to unroll the filter
+  check_success(cudaMemcpy(device_W, Mask, M*C*K*K * sizeof(float), cudaMemcpyHostToDevice));
+
+  unrollFilters<<<gridDimension1, blockDimension1>>>(C, M, K, device_W, device_W_unrolled);
+  cudaDeviceSynchronize();
+
+  // Next, allocate device memory for input unrolling
+  check_success(cudaMalloc((void**)&device_X_unrolled, W_unroll * H_unroll * sizeof(float)));
+  check_success(cudaMalloc((void**)&device_Y_unrolled,  M*N*W_out*H_out* sizeof(float)));
 
   // Initialize the grid and block dimensions
-  dim3 blockDimension(TILE_WIDTH, TILE_WIDTH, 1);
-  dim3 gridDimension(ceil((1.0*M)/TILE_WIDTH), ceil((1.0*H_unroll)/TILE_WIDTH), 1);
-
-  check_success(cudaMemcpy(device_W_unrolled, W_unrolled, M*C*K*K * sizeof(float), cudaMemcpyHostToDevice));
+  dim3 blockDimension2(TILE_WIDTH, TILE_WIDTH, 1);
+  dim3 gridDimension2(ceil((1.0*H_unroll)/TILE_WIDTH), ceil((1.0*M)/TILE_WIDTH), 1);
 
   for (int n = 0; n < N; n++)
   {
@@ -229,12 +279,20 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
 
     check_success(cudaMemcpy(device_X_unrolled, X_unrolled, W_unroll * H_unroll * sizeof(float), cudaMemcpyHostToDevice));
 
-    matrixMultiplyShared<<<gridDimension, blockDimension>>>(device_X_unrolled, device_W_unrolled, &(device_Y[n*ydims[1]*ydims[2]*ydims[3]]),
-      H_unroll, W_unroll, C*K*K, M, H_unroll, M);
+    matrixMultiplyShared<<<gridDimension2, blockDimension2>>>(device_W_unrolled, device_X_unrolled, &(device_Y_unrolled[n*ydims[1]*ydims[2]*ydims[3]]),
+      M, C*K*K, W_unroll, H_unroll, M, H_unroll);
 
     cudaDeviceSynchronize();
 
   }
+
+  // Now "re-roll" the output Y
+  check_success(cudaMalloc((void**)&device_Y, M*N*W_out*H_out* sizeof(float)));
+  dim3 blockDimension3(M, 1, 1);
+  dim3 gridDimension3(N, 1, 1);
+
+  rerollOutput<<<gridDimension3, blockDimension3>>>(M, N, H_out, W_out, device_Y_unrolled, device_Y);
+  cudaDeviceSynchronize();
 
   // Copy memory back to host
   check_success(cudaMemcpy(Y, device_Y, M*N*W_out*H_out* sizeof(float), cudaMemcpyDeviceToHost));
@@ -243,6 +301,8 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   free(X_unrolled);
   cudaFree(device_X_unrolled);
   cudaFree(device_W_unrolled);
+  cudaFree(device_Y_unrolled);
+  cudaFree(device_W);
   cudaFree(device_Y);
 }
 
