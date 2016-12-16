@@ -20,6 +20,9 @@
 // Same as block dimension
 #define TILE_WIDTH 16
 
+// Wild assumption
+#define CUDA_MAX_NUM_THREADS 1024
+
 static int FLAGS_batch_size = 10000;
 static std::string FLAGS_testdata{};
 static std::string FLAGS_model{};
@@ -172,6 +175,7 @@ __global__ void matrixMultiplyShared(float *A, float *B, float *C,
 }
 
 // Parallel implementation of the filter unroll
+// Effectively reorganizes the filter array into a different format
 __global__ void unrollFilters(int C, int M, int K, float * W, float * W_unroll)
 {
   int p, q, c, m;
@@ -192,6 +196,7 @@ __global__ void unrollFilters(int C, int M, int K, float * W, float * W_unroll)
 }
 
 // Parallel implementation of the output reroll
+// Effectively reorganizes the output maps into a different format
 __global__ void rerollOutput(int M, int N, int H_out, int W_out, float * Y_unrolled, float * Y)
 {
   int m, n, h, w;
@@ -211,46 +216,45 @@ __global__ void rerollOutput(int M, int N, int H_out, int W_out, float * Y_unrol
   }
 }
 
-// Sequential input unroll implementation
-void unroll(int C, int H, int W, int K, int n, float* X, float* X_unroll, int xdims[4])
+// Parallel input unroll implementation
+__global__ void unroll_gpu(int C, int H, int W, int K, int n, float* X, float* X_unroll)
 {
-  int c, h, w, p, q, w_base, w_unroll, h_unroll, x_index;
+  int c, s, h_out, w_out, h_unroll, w_unroll, w_base, p, q, x_index;
+
+  int t = blockIdx.x * blockDim.x + threadIdx.x;
   int H_out = H - K + 1;
   int W_out = W - K + 1;
-  int W_unroll = C * K * K;
-  int H_unroll = H_out * W_out;
+  int W_unroll = H_out * W_out;
 
-  for(c = 0; c < C; c++) // input map index
+  if (t < C * W_unroll)
   {
-    w_base = c * (K*K);
+    c = t / W_unroll;
+    s = t % W_unroll;
+    h_out = s / W_out;
+    w_out = s % W_out;
+    h_unroll = h_out * W_out + w_out;
+    w_base = c * K * K;
     for(p = 0; p < K; p++)
     {
       for(q = 0; q < K; q++)
       {
-        for(h = 0; h < H_out; h++)
-        {
-          for(w = 0; w < W_out; w ++)
-          {
-            w_unroll = w_base + p * K + q;
-            h_unroll = h * W_out + w;
-            x_index = n*H*W*C + (h+p)*W*C + (w+q)*C + c;
-
-            X_unroll[w_unroll*H_unroll + h_unroll] = X[x_index];
-          }
-        }
+        w_unroll = w_base + p * K + q;
+        x_index = n*H*W*C + (h_out+p)*W*C + (w_out+q)*C + c;
+        X_unroll[w_unroll*W_unroll + h_unroll] = X[x_index];
       }
     }
   }
 }
 
-void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* Mask, float* Y, int xdims[4], const int ydims[4])
+// Forward convolutional layer: uses unrolling + matrix multiplication!
+void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* Mask, float* Y, const int ydims[4])
 {
   int W_out = W - K + 1;
   int H_out = H - K + 1;
   int W_unroll = C * K * K;
   int H_unroll = H_out * W_out;
   float* X_unrolled = (float*)malloc(W_unroll * H_unroll * sizeof(float));
-  float * device_X_unrolled, * device_W, * device_W_unrolled, * device_Y, * device_Y_unrolled;
+  float * device_X, * device_X_unrolled, * device_W, * device_W_unrolled, * device_Y, * device_Y_unrolled;
 
   //  Allocate device memory and dim3's for filter unrolling
   check_success(cudaMalloc((void**)&device_W_unrolled, M*C*K*K * sizeof(float)));
@@ -266,19 +270,23 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
 
   // Next, allocate device memory for input unrolling
   check_success(cudaMalloc((void**)&device_X_unrolled, W_unroll * H_unroll * sizeof(float)));
+  check_success(cudaMalloc((void**)&device_X, N * C * H * W * sizeof(float)));
   check_success(cudaMalloc((void**)&device_Y_unrolled,  M*N*W_out*H_out* sizeof(float)));
 
   // Initialize the grid and block dimensions
   dim3 blockDimension2(TILE_WIDTH, TILE_WIDTH, 1);
   dim3 gridDimension2(ceil((1.0*H_unroll)/TILE_WIDTH), ceil((1.0*M)/TILE_WIDTH), 1);
 
+  // Copy over input memory to the device_X
+  check_success(cudaMemcpy(device_X, X, N * C * H * W * sizeof(float), cudaMemcpyHostToDevice));
+
   for (int n = 0; n < N; n++)
   {
-    unroll(C, H, W, K, n, X, X_unrolled, xdims);
-    //gemm(X_unroll_height, M, W_unroll, X_unrolled, W, Y[n]);
+    // Parallel input unroll
+    unroll_gpu<<<ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), CUDA_MAX_NUM_THREADS>>>(C, H, W, K, n, device_X, device_X_unrolled);
+    cudaDeviceSynchronize();
 
-    check_success(cudaMemcpy(device_X_unrolled, X_unrolled, W_unroll * H_unroll * sizeof(float), cudaMemcpyHostToDevice));
-
+    // Matrix multiplication
     matrixMultiplyShared<<<gridDimension2, blockDimension2>>>(device_W_unrolled, device_X_unrolled, &(device_Y_unrolled[n*ydims[1]*ydims[2]*ydims[3]]),
       M, C*K*K, W_unroll, H_unroll, M, H_unroll);
 
@@ -300,84 +308,11 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   // Free memory
   free(X_unrolled);
   cudaFree(device_X_unrolled);
+  cudaFree(device_X);
   cudaFree(device_W_unrolled);
   cudaFree(device_Y_unrolled);
   cudaFree(device_W);
   cudaFree(device_Y);
-}
-
-// CUDA kernel for forward convolution path
-
-/* __global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], int wdims[4], int ydims[4])
- * Local Variables:
- *      n = sample index
- *      m = output map index
- *      w = column index within an output map
- *      h = row index within an output map
- *      p = row index within a mask
- *      q = column index within a mask
- *      c = input map/channel index
- */
-__global__ void conv_forward_kernel(float *X, float *W, float *Y, int xdims[4], int wdims[4], int ydims[4])
-{
-    int n, m, h0, w0, h_base, w_base, h, w;
-
-    int X_tile_width = TILE_WIDTH + wdims[0]-1;
-    extern __shared__ float shmem[];
-    float* X_shared = &shmem[0];
-    float* W_shared = &shmem[X_tile_width * X_tile_width];
-
-    n = blockIdx.x;
-    m = blockIdx.y;
-
-    h0 = threadIdx.y;
-    w0 = threadIdx.x;
-    h_base = (blockIdx.z / ((ydims[2]-1)/TILE_WIDTH + 1))*TILE_WIDTH;
-    w_base = (blockIdx.z % ((ydims[1]-1)/TILE_WIDTH + 1))*TILE_WIDTH;
-    h = h_base + h0;
-    w = w_base + w0;
-
-    float acc = 0.0f;
-
-    // sum over all input channels
-    for (int c = 0; c < wdims[2]  ; c++)
-    {
-        // load weights for W [m, c,..], h0 and w0 used as shorthand for threadIdx.x and threadIdx.y
-        int woffset = h0*wdims[1]*wdims[2]*wdims[3] + w0*wdims[2]*wdims[3] + c*wdims[3] + m;
-        if (( h0 < wdims[0]) && ( w0 < wdims[1])) W_shared[h0*wdims[1] + w0] = W[woffset];
-
-        __syncthreads();
-
-        // load tile from X[n, c,...] into shared memory
-        for (int i = h; i < h_base + X_tile_width; i += TILE_WIDTH)
-        {
-            for (int j = w; j < w_base + X_tile_width; j += TILE_WIDTH)
-            {
-                int xoffset = n*xdims[1]*xdims[2]*xdims[3] + i*xdims[2]*xdims[3] + j*xdims[3] + c;
-                int x_shared_offset = X_tile_width*(i - h_base) + (j - w_base);
-                X_shared[x_shared_offset] = X[xoffset];
-            }
-        }
-
-        __syncthreads();
-
-        for (int p = 0; p < wdims[0]; p++)
-        {
-            for (int q = 0; q < wdims[1]; q++)
-            {
-                int x_shared_offset = X_tile_width*(h0+p) + (w0+q);
-                int w_shared_offset = wdims[1]*p + q;
-                acc = acc + X_shared[x_shared_offset] * W_shared[w_shared_offset];
-            }
-        }
-
-        __syncthreads();
-    }
-
-    int yoffset = ((n * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-
-    if(w < ydims[2] && h < ydims[1])
-        Y[yoffset] = (acc < 0.0f) ? 0.0f : acc;
 }
 
 // CUDA kernel for average pool
@@ -490,7 +425,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     /*********************************************** CONV 1 Layer ************************************************/
 
     // Done using unrolling and matrix-matrix multiplication
-    convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, conv1Output, xdims, adims);
+    convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, conv1Output, adims);
 
     check_success(cudaMalloc((void**)&deviceInputPool1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 
@@ -524,45 +459,11 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     /*********************************************** CONV 2 Layer ************************************************/
 
     // Done using unrolling and matrix-matrix multiplication
-    convLayer_forward(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], b, conv2, conv2Output, (int*)bdims, cdims);
+    convLayer_forward(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], b, conv2, conv2Output, cdims);
 
     check_success(cudaMalloc((void**)&deviceInputPool2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float)));
 
     check_success(cudaMemcpy(deviceInputPool2, conv2Output, cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float), cudaMemcpyHostToDevice));
-
-    /*
-    // conv layer 2 setup
-    check_success(cudaMalloc((void**)&deviceMaskConv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*xdims[3]*sizeof(float)));
-    check_success(cudaMalloc((void**)&deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*xdims[3]*sizeof(float)));
-
-    // copy data to device
-    check_success(cudaMemcpy(deviceMaskConv2, conv2, conv2dims[0]*conv2dims[1]*conv2dims[2]*conv2dims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
-
-    // copy data dims to device
-    check_success(cudaMemcpy(deviceIndims, bdims, 4*sizeof(int),cudaMemcpyHostToDevice));
-    check_success(cudaMemcpy(deviceMaskdims, conv2dims, 4*sizeof(int),cudaMemcpyHostToDevice));
-    check_success(cudaMemcpy(deviceOutdims, cdims, 4*sizeof(int),cudaMemcpyHostToDevice));
-
-    // kernel dims
-    N = bdims[0];
-    M = conv2dims[3];
-    Z = ((cdims[2]-1)/TILE_WIDTH+1)*((cdims[1]-1)/TILE_WIDTH+1);
-    dim3 blockDimConv2(TILE_WIDTH, TILE_WIDTH, 1);
-    dim3 gridDimConv2(N, M, Z);
-
-    unsigned int shmem_size_2 = sizeof(float)*((TILE_WIDTH + conv2dims[1] - 1)*(TILE_WIDTH + conv2dims[0] - 1) + conv2dims[0]*conv2dims[1]);
-
-    // conv layer 2
-    conv_forward_kernel<<<gridDimConv2, blockDimConv2, shmem_size_2>>>(deviceInputConv2, deviceMaskConv2, deviceOutputConv2, deviceIndims, deviceMaskdims, deviceOutdims);
-    cudaDeviceSynchronize();
-
-    // simply use the device output data as input for the next kernel launch
-    deviceInputPool2 = deviceOutputConv2;
-
-    // freeing device memory for conv 2 layer
-    cudaFree(deviceInputConv2);
-    cudaFree(deviceMaskConv2);
-    */
 
     /*********************************************** AVG POOL 2 Layer ************************************************/
     // allocate memory for device pool 2 calculation
