@@ -463,9 +463,9 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     // CUDA device vars
     int * deviceIndims, * deviceMaskdims, * deviceOutdims;               // logistical vars
-    // no conv 1 vars here
+    float * deviceInputConv1, * deviceMaskConv1, * deviceOutputConv1;    // conv 1 vars
     float * deviceInputPool1, * deviceOutputPool1;                       // pool 1 vars
-    // no conv 2 vars here
+    float * deviceInputConv2, * deviceMaskConv2, * deviceOutputConv2;    // conv 2 vars
     float * deviceInputPool2, * deviceOutputPool2;                       // pool 2 vars
     float * deviceInputFullyForward1, * deviceMaskFullyForward1, * deviceOutputFullyForward1;       // fully connected 1 vars
     float * deviceInputFullyForward2, * deviceMaskFullyForward2, * deviceOutputFullyForward2;       // fully connected 2 vars
