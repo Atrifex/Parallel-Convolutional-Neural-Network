@@ -426,7 +426,6 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     // conv layer 1 vars
     const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1),
                          (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
-    auto a = zeros<float>(adims);
     float * conv1Output = (float*)malloc(adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float));
 
     // avg pool 1 vars
@@ -438,14 +437,11 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     // conv layer 2 vars
     const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1),
                          (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
-    auto c = zeros<float>(cdims);
     float * conv2Output = (float*)malloc(cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float));
 
     // avg pool 2 vars
     const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size,
                          cdims[3]};
-    auto d = zeros<float>(ddims);
-    auto pool2Output = zeros<float>(ddims);
 
     // fully connected layer 1 vars
     const int ddims2[] = {ddims[0], ddims[1] * ddims[2] * ddims[3]};
@@ -596,13 +592,9 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     argmax(f, fdims, out);
 
     // freeing host buffers
-    delete[] a;
     delete[] b;
-    delete[] c;
-    delete[] d;
     delete[] e;
     delete[] f;
-    delete[] pool2Output;
     delete[] conv1Output;
     delete[] conv2Output;
 
