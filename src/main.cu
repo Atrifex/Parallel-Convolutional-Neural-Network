@@ -37,6 +37,31 @@ static int conv2dims[] = {5, 5, 32, 64};
 static int fc1dims[]   = {1024, 128};
 static int fc2dims[]   = {128, 10};
 
+float * b, * e, * f;
+
+// CUDA device buffers
+float * deviceOutputConv1;  // conv 1 vars
+float * deviceInputPool1, * deviceOutputPool1;  // pool 1 vars
+float * deviceOutputConv2;  // conv 2 vars
+float * deviceInputPool2, * deviceOutputPool2;  // pool 2 vars
+float * deviceInputFullyForward1, * deviceMaskFullyForward1, * deviceOutputFullyForward1; // fully connected 1 vars
+float * deviceInputFullyForward2, * deviceMaskFullyForward2, * deviceOutputFullyForward2; // fully connected 2 vars
+
+// Buffers for conv layer 1
+float * X_unrolled_L1;
+float * device_X0_L1, * device_X1_L1, * device_X2_L1;
+float * device_X_unrolled0_L1, * device_X_unrolled1_L1, * device_X_unrolled2_L1;
+float * device_W_L1, * device_W_unrolled_L1;
+float * device_Y_unrolled_L1;
+
+// Buffers for conv layer 2
+float * X_unrolled_L2;
+float * device_X0_L2, * device_X1_L2, * device_X2_L2;
+float * device_X_unrolled0_L2, * device_X_unrolled1_L2, * device_X_unrolled2_L2;
+float * device_W_L2, * device_W_unrolled_L2;
+float * device_Y_unrolled_L2;
+
+
 static int loadData(float *x, float *y) {
     // Open the data file
     const auto file_id =
@@ -253,23 +278,14 @@ __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll
 }
 
 // Forward convolutional layer: uses unrolling + matrix multiplication!
-void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* Mask, float* device_Y, const int ydims[4])
+void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* Mask, float* device_Y, const int ydims[4], float * X_unrolled, float * device_X0, float * device_X1, float * device_X2, float * device_X_unrolled0, float * device_X_unrolled1, float * device_X_unrolled2,  float * device_W, float * device_W_unrolled, float * device_Y_unrolled)
 {
   int W_out = W - K + 1;
   int H_out = H - K + 1;
   int H_unroll = C * K * K;
   int W_unroll = H_out * W_out;
-  float* X_unrolled = (float*)malloc(W_unroll * H_unroll * sizeof(float));
 
-  // Device buffers
-  float * device_X0, * device_X1, * device_X2;
-  float * device_X_unrolled0, * device_X_unrolled1, * device_X_unrolled2;
-  float * device_W, * device_W_unrolled;
-  float * device_Y_unrolled;
-
-  //  Allocate device memory and dim3's for filter unrolling
-  check_success(cudaMalloc((void**)&device_W_unrolled, M*C*K*K * sizeof(float)));
-  check_success(cudaMalloc((void**)&device_W, M*C*K*K * sizeof(float)));
+  // dim3's for filter unrolling
   dim3 blockDimension1(M, 1, 1);
   dim3 gridDimension1(C, 1, 1);
 
@@ -278,15 +294,6 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
 
   unrollFilters<<<gridDimension1, blockDimension1>>>(C, M, K, device_W, device_W_unrolled);
   cudaDeviceSynchronize();
-
-  // Next, allocate device memory for streamed input unrolling
-  check_success(cudaMalloc((void**)&device_X_unrolled0, W_unroll * H_unroll * sizeof(float)));
-  check_success(cudaMalloc((void**)&device_X_unrolled1, W_unroll * H_unroll * sizeof(float)));
-  check_success(cudaMalloc((void**)&device_X_unrolled2, W_unroll * H_unroll * sizeof(float)));
-  check_success(cudaMalloc((void**)&device_X0, C * H * W * sizeof(float)));
-  check_success(cudaMalloc((void**)&device_X1, C * H * W * sizeof(float)));
-  check_success(cudaMalloc((void**)&device_X2, C * H * W * sizeof(float)));
-  check_success(cudaMalloc((void**)&device_Y_unrolled,  M*N*W_out*H_out* sizeof(float)));
 
   // Initialize the grid and block dimensions for unrolling
   dim3 blockDimensionU(CUDA_MAX_NUM_THREADS, 1, 1);
@@ -433,9 +440,65 @@ void setup_cuda_mem()
     const int fdims[] = {edims[0], fc2dims[1]};
 
 
+    b = zeros<float>(bdims);
+    e = zeros<float>(edims);
+    f = zeros<float>(fdims);
 
+    // forward_operation
+    check_success(cudaMalloc((void**)&deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
+    check_success(cudaMalloc((void**)&deviceOutputPool1, bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]*sizeof(float)));
+    check_success(cudaMalloc((void**)&deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float)));
+    check_success(cudaMalloc((void**)&deviceOutputPool2, ddims[0]*ddims[1]*ddims[2]*ddims[3]*xdims[3]*sizeof(float)));
+    check_success(cudaMalloc((void**)&deviceMaskFullyForward1, ddims2[1]*fc1dims[1]*sizeof(float)));
+    check_success(cudaMalloc((void**)&deviceOutputFullyForward1, edims[0]*edims[1]*sizeof(float)));
+    check_success(cudaMalloc((void**)&deviceMaskFullyForward2, edims[1]*fc2dims[1]*sizeof(float)));
+    check_success(cudaMalloc((void**)&deviceOutputFullyForward2, fdims[0]*fdims[1]*sizeof(float)));
 
+    // conv 1 layer
+    int N  = xdims[0];
+    int M = conv1dims[3];
+    int C = conv1dims[2];
+    int H = xdims[1];
+    int W = xdims[2];
+    int K = conv1dims[0];
+    int W_out = W - K + 1;
+    int H_out = H - K + 1;
+    int H_unroll = C * K * K;
+    int W_unroll = H_out * W_out;
 
+    X_unrolled_L1 = (float*)malloc(W_unroll * H_unroll * sizeof(float));
+    check_success(cudaMalloc((void**)&device_W_unrolled_L1, M*C*K*K * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_W_L1, M*C*K*K * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X_unrolled0_L1, W_unroll * H_unroll * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X_unrolled1_L1, W_unroll * H_unroll * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X_unrolled2_L1, W_unroll * H_unroll * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X0_L1, C * H * W * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X1_L1, C * H * W * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X2_L1, C * H * W * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_Y_unrolled_L1,  M*N*W_out*H_out* sizeof(float)));
+
+    // conv 1 layer
+    N  = bdims[0];
+    M = conv2dims[3];
+    C = conv2dims[2];
+    H = bdims[1];
+    W = bdims[2];
+    K = conv2dims[0];
+    W_out = W - K + 1;
+    H_out = H - K + 1;
+    H_unroll = C * K * K;
+    W_unroll = H_out * W_out;
+
+    X_unrolled_L2 = (float*)malloc(W_unroll * H_unroll * sizeof(float));
+    check_success(cudaMalloc((void**)&device_W_unrolled_L2, M*C*K*K * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_W_L2, M*C*K*K * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X_unrolled0_L2, W_unroll * H_unroll * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X_unrolled1_L2, W_unroll * H_unroll * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X_unrolled2_L2, W_unroll * H_unroll * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X0_L2, C * H * W * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X1_L2, C * H * W * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_X2_L2, C * H * W * sizeof(float)));
+    check_success(cudaMalloc((void**)&device_Y_unrolled_L2,  M*N*W_out*H_out* sizeof(float)));
 }
 
 // Forward operation for the CNN, a combination of conv layer + average pooling
@@ -446,18 +509,15 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     // conv layer 1 vars
     const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1),
                          (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
-    float * conv1Output = (float*)malloc(adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float));
 
     // avg pool 1 vars
     const int pool_size = 2;
     const int bdims[]   = {adims[0], adims[1] / pool_size, adims[2] / pool_size,
                            adims[3]};
-    auto b = zeros<float>(bdims);
 
     // conv layer 2 vars
     const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1),
                          (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
-    float * conv2Output = (float*)malloc(cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float));
 
     // avg pool 2 vars
     const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size,
@@ -466,24 +526,13 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     // fully connected layer 1 vars
     const int ddims2[] = {ddims[0], ddims[1] * ddims[2] * ddims[3]};
     const int edims[] = {ddims[0], fc1dims[1]};
-    auto e = zeros<float>(edims);
 
     // fully connected layer 2 vars
     const int fdims[] = {edims[0], fc2dims[1]};
-    auto f = zeros<float>(fdims);
-
-    // CUDA device vars
-    float * deviceOutputConv1;                                           // conv 1 vars
-    float * deviceInputPool1, * deviceOutputPool1;                       // pool 1 vars
-    float * deviceOutputConv2;    // conv 2 vars
-    float * deviceInputPool2, * deviceOutputPool2;                       // pool 2 vars
-    float * deviceInputFullyForward1, * deviceMaskFullyForward1, * deviceOutputFullyForward1;       // fully connected 1 vars
-    float * deviceInputFullyForward2, * deviceMaskFullyForward2, * deviceOutputFullyForward2;       // fully connected 2 vars
 
     /*********************************************** CONV 1 Layer ************************************************/
     // Done using unrolling and matrix-matrix multiplication
-    check_success(cudaMalloc((void**)&deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
-    convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, deviceOutputConv1, adims);
+    convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, deviceOutputConv1, adims, X_unrolled_L1, device_X0_L1, device_X1_L1, device_X2_L1, device_X_unrolled0_L1, device_X_unrolled1_L1, device_X_unrolled2_L1, device_W_L1, device_W_unrolled_L1, device_Y_unrolled_L1);
 
     // relu
     dim3 blockDimRELU1(1024, 1, 1);
@@ -494,9 +543,6 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     deviceInputPool1 = deviceOutputConv1;
 
     /*********************************************** AVG POOL 1 Layer ************************************************/
-    // allocate memory for device pool 1 calculation
-    check_success(cudaMalloc((void**)&deviceOutputPool1, bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]*sizeof(float)));
-
     // kernel dims
     int N = adims[0];
     int M = conv1dims[3];
@@ -516,8 +562,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     /*********************************************** CONV 2 Layer ************************************************/
     // Done using unrolling and matrix-matrix multiplication
-    check_success(cudaMalloc((void**)&deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float)));
-    convLayer_forward(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], b, conv2, deviceOutputConv2, cdims);
+    convLayer_forward(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], b, conv2, deviceOutputConv2, cdims, X_unrolled_L2, device_X0_L2, device_X1_L2, device_X2_L2, device_X_unrolled0_L2,  device_X_unrolled1_L2,  device_X_unrolled2_L2, device_W_L2,  device_W_unrolled_L2, device_Y_unrolled_L2);
 
     // relu
     dim3 blockDimRELU2(1024, 1, 1);
@@ -528,9 +573,6 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     deviceInputPool2 = deviceOutputConv2;
 
     /*********************************************** AVG POOL 2 Layer ************************************************/
-    // allocate memory for device pool 2 calculation
-    check_success(cudaMalloc((void**)&deviceOutputPool2, ddims[0]*ddims[1]*ddims[2]*ddims[3]*xdims[3]*sizeof(float)));
-
     // kernel dims
     N = cdims[0];
     M = conv2dims[3];
@@ -548,8 +590,6 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     /*********************************************** FULLY CONNECTED 1 Layer ************************************************/
     // allocate memory for device fully connected layer 1
     deviceInputFullyForward1 = deviceOutputPool2;
-    check_success(cudaMalloc((void**)&deviceMaskFullyForward1, ddims2[1]*fc1dims[1]*sizeof(float)));
-    check_success(cudaMalloc((void**)&deviceOutputFullyForward1, edims[0]*edims[1]*sizeof(float)));
 
     // copy data to device
     check_success(cudaMemcpy(deviceMaskFullyForward1, fc1, ddims2[1]*fc1dims[1]*sizeof(float),cudaMemcpyHostToDevice));
@@ -576,8 +616,6 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     /*********************************************** FULLY CONNECTED 2 Layer ************************************************/
     // allocate memory for device fully connected layer 1
     deviceInputFullyForward2 = deviceOutputFullyForward1;
-    check_success(cudaMalloc((void**)&deviceMaskFullyForward2, edims[1]*fc2dims[1]*sizeof(float)));
-    check_success(cudaMalloc((void**)&deviceOutputFullyForward2, fdims[0]*fdims[1]*sizeof(float)));
 
     // copy data to device
     check_success(cudaMemcpy(deviceMaskFullyForward2, fc2, edims[1]*fc2dims[1]*sizeof(float),cudaMemcpyHostToDevice));
@@ -606,8 +644,6 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     delete[] b;
     delete[] e;
     delete[] f;
-    delete[] conv1Output;
-    delete[] conv2Output;
 }
 
 int main(int argc, char **argv) {
