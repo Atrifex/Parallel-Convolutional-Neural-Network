@@ -216,86 +216,40 @@ __global__ void rerollOutput(int M, int N, int H_out, int W_out, float * Y_unrol
   }
 }
 
-/*
 // Parallel input unroll implementation
 // Modified to work with streams
 __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll)
 {
-  int c, s, h_out, w_out, h_unroll, w_unroll, h_base, p, q, x_index;
+  //int c;
+  //int s;
+  int h_out, w_out, h_unroll, w_unroll, h_base;
+  //int x_index;
 
-  int t = blockIdx.x * blockDim.x + threadIdx.x;
-  int H_out = H - K + 1;
-  int W_out = W - K + 1;
-  int W_unroll = H_out * W_out;
+  //int t = (blockIdx.x * blockDim.x + threadIdx.x);
+  //int H_out = (H - K + 1);
+  //int W_out = (W - K + 1);
+  int W_unroll = (H - K + 1) * (W - K + 1);
 
-  if (t < C * W_unroll)
+  if ((blockIdx.x * blockDim.x + threadIdx.x) < C * W_unroll)
   {
     //c = t / W_unroll;
     //s = t % W_unroll;
-    c = t % C; // Idea: change thread-to-element mapping to get coalesced memory access
-    s = t/C;
-    h_out = s / W_out;
-    w_out = s % W_out;
-    w_unroll = h_out * W_out + w_out;
-    h_base = c * K * K;
-    for(p = 0; p < K; p++)
+    //c = ((blockIdx.x * blockDim.x + threadIdx.x) % C); // Idea: change thread-to-element mapping to get coalesced memory access
+    //s = ((blockIdx.x * blockDim.x + threadIdx.x)/C);
+    h_out = ((blockIdx.x * blockDim.x + threadIdx.x)/C) / (W - K + 1);
+    w_out = ((blockIdx.x * blockDim.x + threadIdx.x)/C) % (W - K + 1);
+    w_unroll = h_out * (W - K + 1) + w_out;
+    h_base = ((blockIdx.x * blockDim.x + threadIdx.x) % C) * K * K;
+    for(int p = 0; p < K; p++)
     {
-      for(q = 0; q < K; q++)
+      for(int q = 0; q < K; q++)
       {
         h_unroll = h_base + p * K + q;
-        x_index = (h_out+p)*W*C + (w_out+q)*C + c;
-        X_unroll[h_unroll*W_unroll + w_unroll] = X[x_index]; // Read accesses should be at least partially coalesced now
+        //x_index = (h_out+p)*W*C + (w_out+q)*C + c;
+        X_unroll[h_unroll*W_unroll + w_unroll] = X[(h_out+p)*W*C + (w_out+q)*C + ((blockIdx.x * blockDim.x + threadIdx.x) % C)]; // Read accesses should be at least partially coalesced now
       }
     }
   }
-}
-*/
-
-// Input unroll implementation that uses shared memory
-__global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll)
-{
-  // Idea: Launch threads in 2-d blocks of H rows, W columns.
-  // Launch C 1-D grids total.
-  // Each thread will load one input element into shared memory (per-block collaboration)
-
-  extern __shared__ float X_shared[];
-
-  int h_out, w_out, w_unroll, h_base, h_unroll, s, p, q;
-
-  // Thread mapping
-  int w = threadIdx.x;
-  int h = threadIdx.y;
-  int c = blockIdx.x;
-  int t = blockIdx.x*blockDim.y*blockDim.x + threadIdx.y*blockDim.x + threadIdx.x;
-
-  // Output/unrolling variables
-  int H_out = H - K + 1;
-  int W_out = W - K + 1;
-  int W_unroll = H_out * W_out;
-
-  // Load input elements into shared memory
-  if(w < W && h < H)
-    X_shared[h*W + w] = X[h*W*C + w*C + c];
-
-  __syncthreads();
-
-  if(h < H_out && w < W_out)
-  {
-    s = t % W_unroll;
-    h_out = s / W_out;
-    w_out = s % W_out;
-    w_unroll = h_out * W_out + w_out;
-    h_base = c * K * K;
-    for(p = 0; p < K; p++)
-    {
-      for(q = 0; q < K; q++)
-      {
-        h_unroll = h_base + p * K + q;
-        X_unroll[h_unroll*W_unroll + w_unroll] = X_shared[(h_out+p)*W + (w_out+q)]; // Read accesses should be at least partially coalesced now
-      }
-    }
-  }
-
 }
 
 // Forward convolutional layer: uses unrolling + matrix multiplication!
@@ -335,10 +289,8 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   check_success(cudaMalloc((void**)&device_Y_unrolled,  M*N*W_out*H_out* sizeof(float)));
 
   // Initialize the grid and block dimensions for unrolling
-  /*dim3 blockDimensionU(CUDA_MAX_NUM_THREADS, 1, 1);
-  dim3 gridDimensionU(ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), 1, 1);*/
-  dim3 blockDimensionU(W, H, 1);
-  dim3 gridDimensionU(C, 1, 1);
+  dim3 blockDimensionU(CUDA_MAX_NUM_THREADS, 1, 1);
+  dim3 gridDimensionU(ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), 1, 1);
 
   // Initialize the grid and block dimensions for matrix multiplication
   dim3 blockDimension2(TILE_WIDTH, TILE_WIDTH, 1);
@@ -363,12 +315,12 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
     }
 
     // Parallel input unroll
-    unroll_gpu<<<gridDimensionU, blockDimensionU, W*H*sizeof(float), stream0>>>(C, H, W, K, device_X0, device_X_unrolled0);
+    unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream0>>>(C, H, W, K, device_X0, device_X_unrolled0);
     if(n+1 < N){
-      unroll_gpu<<<gridDimensionU, blockDimensionU, W*H*sizeof(float), stream1>>>(C, H, W, K, device_X1, device_X_unrolled1);
+      unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream1>>>(C, H, W, K, device_X1, device_X_unrolled1);
     }
     if(n+2 < N){
-      unroll_gpu<<<gridDimensionU, blockDimensionU, W*H*sizeof(float), stream2>>>(C, H, W, K, device_X2, device_X_unrolled2);
+      unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream2>>>(C, H, W, K, device_X2, device_X_unrolled2);
     }
     // cudaDeviceSynchronize();
 
