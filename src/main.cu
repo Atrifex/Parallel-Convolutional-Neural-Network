@@ -170,7 +170,7 @@ __global__ void matrixMultiplyShared(float *A, float *B, float *C,
       // matrix are still needed to load tiles into shared memory.
       if((CRow < numCRows) && (CCol < numCColumns))
       {
-        C[CRow*numCColumns + CCol] = (Cval < 0.0f) ? 0.0f : Cval;
+        C[CRow*numCColumns + CCol] = Cval;
       }
 }
 
