@@ -253,7 +253,7 @@ __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll
 }
 
 // Forward convolutional layer: uses unrolling + matrix multiplication!
-void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* Mask, float* Y, const int ydims[4])
+void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* Mask, float* device_Y, const int ydims[4])
 {
   int W_out = W - K + 1;
   int H_out = H - K + 1;
@@ -265,7 +265,7 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   float * device_X0, * device_X1, * device_X2;
   float * device_X_unrolled0, * device_X_unrolled1, * device_X_unrolled2;
   float * device_W, * device_W_unrolled;
-  float * device_Y, * device_Y_unrolled;
+  float * device_Y_unrolled;
 
   //  Allocate device memory and dim3's for filter unrolling
   check_success(cudaMalloc((void**)&device_W_unrolled, M*C*K*K * sizeof(float)));
@@ -341,15 +341,11 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   cudaDeviceSynchronize();
 
   // Now "re-roll" the output Y
-  check_success(cudaMalloc((void**)&device_Y, M*N*W_out*H_out* sizeof(float)));
   dim3 blockDimension3(M, 1, 1);
   dim3 gridDimension3(N, 1, 1);
 
   rerollOutput<<<gridDimension3, blockDimension3>>>(M, N, H_out, W_out, device_Y_unrolled, device_Y);
   cudaDeviceSynchronize();
-
-  // Copy memory back to host
-  check_success(cudaMemcpy(Y, device_Y, M*N*W_out*H_out* sizeof(float), cudaMemcpyDeviceToHost));
 
   // free memory
   free(X_unrolled);
@@ -362,7 +358,6 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   cudaFree(device_W_unrolled);
   cudaFree(device_Y_unrolled);
   cudaFree(device_W);
-  cudaFree(device_Y);
 }
 
 // CUDA kernel for average pool
@@ -404,24 +399,12 @@ static void argmax(const float *X, const int xdims[2], int *Y) {
     }
 }
 
-// Recified linear unit 4d
-static void relu4(float *X, const int xdims[4]) {
-    for (const auto i : range(0, xdims[0] * xdims[1] * xdims[2] * xdims[3])) {
-        X[i] = (X[i] < 0) ? 0 : X[i];
-    }
-}
-
-// Recified linear unit 2d
-static void relu2(float *X, const int xdims[2]) {
-    for (const auto i : range(0, xdims[0] * xdims[1])) {
-        X[i] = (X[i] < 0) ? 0 : X[i];
-    }
-}
-
 // RELU
-__global__ void relu_gpu(float *X, const int bounds])
+__global__ void relu_gpu(float *X, const int bounds)
 {
-    if((blockDim.x*blockIdx.x + threadIdx.x) < bounds)
+    int i = blockDim.x*blockIdx.x + threadIdx.x;
+
+    if(i < bounds)
     {
       X[i] = (X[i] < 0) ? 0 : X[i];
     }
@@ -463,9 +446,9 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     // CUDA device vars
     int * deviceIndims, * deviceMaskdims, * deviceOutdims;               // logistical vars
-    float * deviceInputConv1, * deviceMaskConv1, * deviceOutputConv1;    // conv 1 vars
+    float * deviceOutputConv1;                                           // conv 1 vars
     float * deviceInputPool1, * deviceOutputPool1;                       // pool 1 vars
-    float * deviceInputConv2, * deviceMaskConv2, * deviceOutputConv2;    // conv 2 vars
+    float * deviceOutputConv2;    // conv 2 vars
     float * deviceInputPool2, * deviceOutputPool2;                       // pool 2 vars
     float * deviceInputFullyForward1, * deviceMaskFullyForward1, * deviceOutputFullyForward1;       // fully connected 1 vars
     float * deviceInputFullyForward2, * deviceMaskFullyForward2, * deviceOutputFullyForward2;       // fully connected 2 vars
@@ -477,17 +460,18 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     /*********************************************** CONV 1 Layer ************************************************/
     // Done using unrolling and matrix-matrix multiplication
-    convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, conv1Output, adims);
+    check_success(cudaMalloc((void**)&deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
+    convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, deviceOutputConv1, adims);
 
     // relu
     dim3 blockDimRELU1(1024, 1, 1);
     dim3 gridDimRELU1((adims[0]*adims[1]*adims[2]*adims[3] - 1)/1024 + 1 , 1, 1);
-    relu_gpu<<<gridDimRELU1, blockDimRELU1>>>(deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3])
+    relu_gpu<<<gridDimRELU1, blockDimRELU1>>>(deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]);
     cudaDeviceSynchronize();
 
     check_success(cudaMalloc((void**)&deviceInputPool1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 
-    check_success(cudaMemcpy(deviceInputPool1, conv1Output, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float), cudaMemcpyHostToDevice));
+    deviceInputPool1 = deviceOutputConv1;
 
     /*********************************************** AVG POOL 1 Layer ************************************************/
     // allocate memory for device pool 1 calculation
@@ -516,17 +500,18 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     /*********************************************** CONV 2 Layer ************************************************/
     // Done using unrolling and matrix-matrix multiplication
-    convLayer_forward(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], b, conv2, conv2Output, cdims);
+    check_success(cudaMalloc((void**)&deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float)));
+    convLayer_forward(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], b, conv2, deviceOutputConv2, cdims);
 
     // relu
     dim3 blockDimRELU2(1024, 1, 1);
     dim3 gridDimRELU2((cdims[0]*cdims[1]*cdims[2]*cdims[3] - 1)/1024 + 1 , 1, 1);
-    relu_gpu<<<gridDimRELU2, blockDimRELU2>>>(deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3])
-
+    relu_gpu<<<gridDimRELU2, blockDimRELU2>>>(deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]);
+    cudaDeviceSynchronize();
 
     check_success(cudaMalloc((void**)&deviceInputPool2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float)));
 
-    check_success(cudaMemcpy(deviceInputPool2, conv2Output, cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float), cudaMemcpyHostToDevice));
+    deviceInputPool2 = deviceOutputConv2;
 
     /*********************************************** AVG POOL 2 Layer ************************************************/
     // allocate memory for device pool 2 calculation
@@ -575,8 +560,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     // relu
     dim3 blockDimRELU3(1024, 1, 1);
     dim3 gridDimRELU3((edims[0]*edims[1] - 1)/1024 + 1 , 1, 1);
-    relu_gpu<<<gridDimRELU3, blockDimRELU3>>>(deviceOutputFullyForward1,  edims[0]*edims[1])
-
+    relu_gpu<<<gridDimRELU3, blockDimRELU3>>>(deviceOutputFullyForward1,  edims[0]*edims[1]);
+    cudaDeviceSynchronize();
 
     /*********************************************** FULLY CONNECTED 2 Layer ************************************************/
     // allocate memory for device fully connected layer 1
