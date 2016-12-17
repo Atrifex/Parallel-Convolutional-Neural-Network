@@ -260,7 +260,7 @@ __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll
 
   extern __shared__ float X_shared[];
 
-  int h_out, w_out, w_unroll, h_base;
+  int h_out, w_out, w_unroll, h_base, h_unroll, s, p, q;
 
   // Thread mapping
   int w = threadIdx.x;
@@ -291,8 +291,7 @@ __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll
       for(q = 0; q < K; q++)
       {
         h_unroll = h_base + p * K + q;
-        x_index = (h_out+p)*W*C + (w_out+q)*C + c;
-        X_unroll[h_unroll*W_unroll + w_unroll] = X[x_index]; // Read accesses should be at least partially coalesced now
+        X_unroll[h_unroll*W_unroll + w_unroll] = X_shared[(h_out+p)*W + (w_out+q)]; // Read accesses should be at least partially coalesced now
       }
     }
   }
@@ -335,7 +334,13 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   check_success(cudaMalloc((void**)&device_X2, C * H * W * sizeof(float)));
   check_success(cudaMalloc((void**)&device_Y_unrolled,  M*N*W_out*H_out* sizeof(float)));
 
-  // Initialize the grid and block dimensions
+  // Initialize the grid and block dimensions for unrolling
+  /*dim3 blockDimensionU(CUDA_MAX_NUM_THREADS, 1, 1);
+  dim3 gridDimensionU(ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), 1, 1);*/
+  dim3 blockDimensionU(W, H, 1);
+  dim3 gridDimensionU(C, 1, 1);
+
+  // Initialize the grid and block dimensions for matrix multiplication
   dim3 blockDimension2(TILE_WIDTH, TILE_WIDTH, 1);
   dim3 gridDimension2(ceil((1.0*W_unroll)/TILE_WIDTH), ceil((1.0*M)/TILE_WIDTH), 1);
 
@@ -358,12 +363,12 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
     }
 
     // Parallel input unroll
-    unroll_gpu<<<ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), CUDA_MAX_NUM_THREADS, 0, stream0>>>(C, H, W, K, device_X0, device_X_unrolled0);
+    unroll_gpu<<<gridDimensionU, blockDimensionU, W*H*sizeof(float), stream0>>>(C, H, W, K, device_X0, device_X_unrolled0);
     if(n+1 < N){
-      unroll_gpu<<<ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), CUDA_MAX_NUM_THREADS, 0, stream1>>>(C, H, W, K, device_X1, device_X_unrolled1);
+      unroll_gpu<<<gridDimensionU, blockDimensionU, W*H*sizeof(float), stream1>>>(C, H, W, K, device_X1, device_X_unrolled1);
     }
     if(n+2 < N){
-      unroll_gpu<<<ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), CUDA_MAX_NUM_THREADS, 0, stream2>>>(C, H, W, K, device_X2, device_X_unrolled2);
+      unroll_gpu<<<gridDimensionU, blockDimensionU, W*H*sizeof(float), stream2>>>(C, H, W, K, device_X2, device_X_unrolled2);
     }
     // cudaDeviceSynchronize();
 
