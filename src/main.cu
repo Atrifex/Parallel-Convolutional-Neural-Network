@@ -220,33 +220,33 @@ __global__ void rerollOutput(int M, int N, int H_out, int W_out, float * Y_unrol
 // Modified to work with streams
 __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll)
 {
-  //int c;
-  //int s;
+  int c;
+  int s;
   int h_out, w_out, h_unroll, w_unroll, h_base;
-  //int x_index;
+  int x_index;
 
-  //int t = (blockIdx.x * blockDim.x + threadIdx.x);
-  //int H_out = (H - K + 1);
-  //int W_out = (W - K + 1);
-  int W_unroll = (H - K + 1) * (W - K + 1);
+  int t = blockIdx.x * blockDim.x + threadIdx.x;
+  int H_out = (H - K + 1);
+  int W_out = (W - K + 1);
+  int W_unroll = H_out * W_out;
 
-  if ((blockIdx.x * blockDim.x + threadIdx.x) < C * W_unroll)
+  if (t < C * W_unroll)
   {
     //c = t / W_unroll;
     //s = t % W_unroll;
-    //c = ((blockIdx.x * blockDim.x + threadIdx.x) % C); // Idea: change thread-to-element mapping to get coalesced memory access
-    //s = ((blockIdx.x * blockDim.x + threadIdx.x)/C);
-    h_out = ((blockIdx.x * blockDim.x + threadIdx.x)/C) / (W - K + 1);
-    w_out = ((blockIdx.x * blockDim.x + threadIdx.x)/C) % (W - K + 1);
-    w_unroll = h_out * (W - K + 1) + w_out;
-    h_base = ((blockIdx.x * blockDim.x + threadIdx.x) % C) * K * K;
+    c = t % C; // Idea: change thread-to-element mapping to get coalesced memory access
+    s = t/C;
+    h_out = s/W_out;
+    w_out = s % W_out;
+    w_unroll = h_out * W_out + w_out;
+    h_base = c * K * K;
     for(int p = 0; p < K; p++)
     {
       for(int q = 0; q < K; q++)
       {
         h_unroll = h_base + p * K + q;
-        //x_index = (h_out+p)*W*C + (w_out+q)*C + c;
-        X_unroll[h_unroll*W_unroll + w_unroll] = X[(h_out+p)*W*C + (w_out+q)*C + ((blockIdx.x * blockDim.x + threadIdx.x) % C)]; // Read accesses should be at least partially coalesced now
+        x_index = (h_out+p)*W*C + (w_out+q)*C + c;
+        X_unroll[h_unroll*W_unroll + w_unroll] = X[x_index]; // Read accesses should be at least partially coalesced now
       }
     }
   }
@@ -404,6 +404,20 @@ static void argmax(const float *X, const int xdims[2], int *Y) {
     }
 }
 
+// Recified linear unit 4d
+static void relu4(float *X, const int xdims[4]) {
+    for (const auto i : range(0, xdims[0] * xdims[1] * xdims[2] * xdims[3])) {
+        X[i] = (X[i] < 0) ? 0 : X[i];
+    }
+}
+
+// Recified linear unit 2d
+static void relu2(float *X, const int xdims[2]) {
+    for (const auto i : range(0, xdims[0] * xdims[1])) {
+        X[i] = (X[i] < 0) ? 0 : X[i];
+    }
+}
+
 // Forward operation for the CNN, a combination of conv layer + average pooling
 // + relu
 void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
@@ -468,6 +482,9 @@ const auto elapsed1 =
 
 std::cout << "conv1 layer took " << elapsed1 << " milliseconds" << std::endl;
 
+    // relu layer
+    relu4(conv1Output, adims);
+
     check_success(cudaMalloc((void**)&deviceInputPool1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
 
     check_success(cudaMemcpy(deviceInputPool1, conv1Output, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float), cudaMemcpyHostToDevice));
@@ -508,6 +525,9 @@ const auto elapsed2 =
     std::chrono::duration<double, std::milli>(end2 - start2).count();
 
 std::cout << "conv2 layer took " << elapsed2 << " milliseconds" << std::endl;
+
+    // relu layer
+    relu4(conv2Output, cdims);
 
     check_success(cudaMalloc((void**)&deviceInputPool2, cdims[0]*cdims[1]*cdims[2]*cdims[3]*sizeof(float)));
 
@@ -556,6 +576,11 @@ std::cout << "conv2 layer took " << elapsed2 << " milliseconds" << std::endl;
     // freeing device memory for fc1 layer
     cudaFree(deviceInputFullyForward1);
     cudaFree(deviceMaskFullyForward1);
+
+    // relu
+    check_success(cudaMemcpy(e, deviceOutputFullyForward1, edims[0]*edims[1]*sizeof(float), cudaMemcpyDeviceToHost));
+    relu2(e, edims);
+    check_success(cudaMemcpy(deviceOutputFullyForward1, e, edims[0]*edims[1]*sizeof(float), cudaMemcpyHostToDevice));
 
     /*********************************************** FULLY CONNECTED 2 Layer ************************************************/
     // allocate memory for device fully connected layer 1
