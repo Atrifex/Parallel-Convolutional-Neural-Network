@@ -471,16 +471,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     check_success(cudaMalloc((void**)&deviceOutdims, 4*sizeof(int)));
 
     /*********************************************** CONV 1 Layer ************************************************/
- const auto start1 = now();
     // Done using unrolling and matrix-matrix multiplication
     convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, conv1Output, adims);
-
-const auto end1 = now();
-
-const auto elapsed1 =
-    std::chrono::duration<double, std::milli>(end1 - start1).count();
-
-std::cout << "conv1 layer took " << elapsed1 << " milliseconds" << std::endl;
 
     // relu layer
     relu4(conv1Output, adims);
@@ -515,16 +507,8 @@ std::cout << "conv1 layer took " << elapsed1 << " milliseconds" << std::endl;
     cudaFree(deviceOutputPool1);
 
     /*********************************************** CONV 2 Layer ************************************************/
-const auto start2 = now();
     // Done using unrolling and matrix-matrix multiplication
     convLayer_forward(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], b, conv2, conv2Output, cdims);
-
-const auto end2 = now();
-
-const auto elapsed2 =
-    std::chrono::duration<double, std::milli>(end2 - start2).count();
-
-std::cout << "conv2 layer took " << elapsed2 << " milliseconds" << std::endl;
 
     // relu layer
     relu4(conv2Output, cdims);
