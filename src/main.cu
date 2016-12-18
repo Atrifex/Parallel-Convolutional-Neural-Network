@@ -19,6 +19,7 @@
 
 // Same as block dimension
 #define TILE_WIDTH 16
+#define MULT_TW 40
 
 // Wild assumption
 #define CUDA_MAX_NUM_THREADS 1024
@@ -137,8 +138,8 @@ __global__ void matrixMultiplyShared(float *A, float *B, float *C,
                                      int numCRows, int numCColumns) {
 
     // Declare shared memory tiles Ads and Bds
-    __shared__ float Ads[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float Bds[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float Ads[MULT_TW][MULT_TW];
+    __shared__ float Bds[MULT_TW][MULT_TW];
 
     // Get row and column of the output element this thread is working on
     int CRow = blockIdx.y*blockDim.y + threadIdx.y;
@@ -158,30 +159,30 @@ __global__ void matrixMultiplyShared(float *A, float *B, float *C,
 
       // Including a +1 accounts for the case in which dimensions are not a multiple of TILE_WIDTH
       // Why can't we use ceil??????
-      for(phase = 0; phase < (numAColumns-1)/TILE_WIDTH + 1; phase++)
+      for(phase = 0; phase < (numAColumns-1)/MULT_TW + 1; phase++)
       {
         // Don't try to load nonexistent elements
-        if((CRow < numCRows) && ((threadIdx.x + phase*TILE_WIDTH) < numAColumns))
+        if((CRow < numCRows) && ((threadIdx.x + phase*MULT_TW) < numAColumns))
         {
           // Each thread loads an element into shared memory
-          Ads[threadIdx.y][threadIdx.x] = A[CRow*numAColumns + threadIdx.x + phase*TILE_WIDTH];
+          Ads[threadIdx.y][threadIdx.x] = A[CRow*numAColumns + threadIdx.x + phase*MULT_TW];
         }
 
         // Don't try to load nonexistent elements
         // Note: A and B have to be checked separately as they could have wildly different dimensions
-        if((CCol < numCColumns) && ((threadIdx.y + phase*TILE_WIDTH) < numBRows))
+        if((CCol < numCColumns) && ((threadIdx.y + phase*MULT_TW) < numBRows))
         {
           // Each thread loads an element into shared memory
-          Bds[threadIdx.y][threadIdx.x] = B[(threadIdx.y + phase*TILE_WIDTH)*numBColumns + CCol];
+          Bds[threadIdx.y][threadIdx.x] = B[(threadIdx.y + phase*MULT_TW)*numBColumns + CCol];
         }
 
         __syncthreads(); // Necessary to ensure all threads have loaded their data before proceeding with computation
 
-        for(dot = 0; dot < TILE_WIDTH; dot++) // Perform the dot product operation for current tile
+        for(dot = 0; dot < MULT_TW; dot++) // Perform the dot product operation for current tile
         {
           // Verify that the tile elements don't step outside the bounds of our actual input matrices.
           // Necessary when numAColumns % TILE_WIDTH != 0
-          if(((dot + phase*TILE_WIDTH) < numAColumns) && ((dot + phase*TILE_WIDTH) < numBRows))
+          if(((dot + phase*MULT_TW) < numAColumns) && ((dot + phase*MULT_TW) < numBRows))
              Cval += Ads[threadIdx.y][dot]*Bds[dot][threadIdx.x];
         }
 
@@ -298,8 +299,8 @@ void convLayer_forward_streamed(int N, int M, int C, int H, int W, int K, float*
   dim3 gridDimensionU(ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), 1, 1);
 
   // Initialize the grid and block dimensions for matrix multiplication
-  dim3 blockDimension2(TILE_WIDTH, TILE_WIDTH, 1);
-  dim3 gridDimension2(ceil((1.0*W_unroll)/TILE_WIDTH), ceil((1.0*M)/TILE_WIDTH), 1);
+  dim3 blockDimension2(MULT_TW, MULT_TW, 1);
+  dim3 gridDimension2(ceil((1.0*W_unroll)/MULT_TW), ceil((1.0*M)/MULT_TW), 1);
 
   // Create CUDA streams
   cudaStream_t stream0, stream1, stream2;
@@ -393,8 +394,8 @@ void convLayer_forward_reg(int N, int M, int C, int H, int W, int K, float* Mask
   dim3 gridDimensionU(ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), 1, 1);
 
   // Initialize the grid and block dimensions for matrix multiplication
-  dim3 blockDimension2(TILE_WIDTH, TILE_WIDTH, 1);
-  dim3 gridDimension2(ceil((1.0*W_unroll)/TILE_WIDTH), ceil((1.0*M)/TILE_WIDTH), 1);
+  dim3 blockDimension2(MULT_TW, MULT_TW, 1);
+  dim3 gridDimension2(ceil((1.0*W_unroll)/MULT_TW), ceil((1.0*M)/MULT_TW), 1);
 
   // Unroll input using multiple kernel launches with streams
   for (int n = 0; n < N; n+=3)
@@ -687,8 +688,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     check_success(cudaMemcpy(deviceMaskFullyForward1, fc1, ddims2[1]*fc1dims[1]*sizeof(float),cudaMemcpyHostToDevice));
 
     // Initialize the grid and block dimensions
-    dim3 blockDimensionFF1(TILE_WIDTH, TILE_WIDTH, 1);
-    dim3 gridDimensionFF1(ceil((1.0*edims[1])/TILE_WIDTH), ceil((1.0*edims[0])/TILE_WIDTH), 1);
+    dim3 blockDimensionFF1(MULT_TW, MULT_TW, 1);
+    dim3 gridDimensionFF1(ceil((1.0*edims[1])/MULT_TW), ceil((1.0*edims[0])/MULT_TW), 1);
 
     // Use tiled matrix multiplication for fc1 layer
     matrixMultiplyShared<<<gridDimensionFF1, blockDimensionFF1>>>(deviceInputFullyForward1, deviceMaskFullyForward1, deviceOutputFullyForward1, ddims2[0], ddims2[1],
@@ -713,8 +714,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     check_success(cudaMemcpy(deviceMaskFullyForward2, fc2, edims[1]*fc2dims[1]*sizeof(float),cudaMemcpyHostToDevice));
 
     // Initialize the grid and block dimensions
-    dim3 blockDimensionFF2(TILE_WIDTH, TILE_WIDTH, 1);
-    dim3 gridDimensionFF2(ceil((1.0*fdims[1])/TILE_WIDTH), ceil((1.0*fdims[0])/TILE_WIDTH), 1);
+    dim3 blockDimensionFF2(MULT_TW, MULT_TW, 1);
+    dim3 gridDimensionFF2(ceil((1.0*fdims[1])/MULT_TW), ceil((1.0*fdims[0])/MULT_TW), 1);
 
     // Use tiled matrix multiplication to implement fc2 layer
     matrixMultiplyShared<<<gridDimensionFF2, blockDimensionFF2>>>(deviceInputFullyForward2, deviceMaskFullyForward2, deviceOutputFullyForward2, edims[0], edims[1],
