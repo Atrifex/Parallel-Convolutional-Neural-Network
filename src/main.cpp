@@ -195,7 +195,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
 
     // conv layer
     const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1), (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
-    auto a = calloc(adims[0]*adims[1]*adims[2]*adims[3], sizeof(float));
+    auto a = (float*)calloc(adims[0]*adims[1]*adims[2]*adims[3], sizeof(float));
     conv_forward_valid(x, xdims, conv1, conv1dims, a, adims);
 
     /// relu layer
@@ -204,12 +204,12 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
     // average pooling
     const int pool_size = 2;
     const int bdims[]   = {adims[0], adims[1] / pool_size, adims[2] / pool_size, adims[3]};
-    auto b = calloc(bdims[0]*bdims[1]*bdims[2]*bdims[3], sizeof(float));
+    auto b = (float*)calloc(bdims[0]*bdims[1]*bdims[2]*bdims[3], sizeof(float));
     average_pool(a, adims, pool_size, b, bdims);
 
     // conv layer
     const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1), (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
-    auto c = calloc(cdims[0]*cdims[1]*cdims[2]*cdims[3], sizeof(float));
+    auto c = (float*)calloc(cdims[0]*cdims[1]*cdims[2]*cdims[3], sizeof(float));
     conv_forward_valid(b, bdims, conv2, conv2dims, c, cdims);
 
     // relu
@@ -217,7 +217,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
 
     // average pooling
     const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size, cdims[3]};
-    auto d = calloc(ddims[0]*ddims[1]*ddims[2]*ddims[3], sizeof(float));
+    auto d = (float*)calloc(ddims[0]*ddims[1]*ddims[2]*ddims[3], sizeof(float));
     average_pool(c, cdims, pool_size, d, ddims);
 
     // reshape
@@ -225,7 +225,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
 
     // matrix multiplication
     const int edims[] = {ddims[0], fc1dims[1]};
-    auto e = calloc(edims[0]*edims[1], sizeof(float));
+    auto e = (float*)calloc(edims[0]*edims[1], sizeof(float));
     fully_forward(d, ddims2, fc1, fc1dims, e, edims);
 
     // relu
@@ -233,7 +233,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
 
     // matrix multiplication
     const int fdims[] = {edims[0], fc2dims[1]};
-    auto f = calloc(fdims[0]*fdims[1], sizeof(float));
+    auto f = (float*)calloc(fdims[0]*fdims[1], sizeof(float));
     fully_forward(e, edims, fc2, fc2dims, f, fdims);
 
     argmax(f, fdims, out);
