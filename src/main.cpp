@@ -17,9 +17,11 @@
 #define NUM_CHANNELS 1
 #define NUM_DIGITS 10
 
+using namespace std;
+
 static int FLAGS_batch_size = 10000;
-static std::string FLAGS_testdata{};
-static std::string FLAGS_model{};
+static string FLAGS_testdata;
+static string FLAGS_model;
 
 // Data and reference data dimensions
 static int xdims[] = {FLAGS_batch_size, NUM_ROWS, NUM_COLS, NUM_CHANNELS};
@@ -101,7 +103,7 @@ static void conv_forward_valid(const float *X, const int xdims[4],
   const auto filter_h   = wdims[0];
   const auto filter_w   = wdims[1];
   const auto in_channel = wdims[2];
-  
+
   for (const auto i : range(0, ydims[0])) {
       for (const auto m : range(0, ydims[3])) {
           for (const auto w : range(0, ydims[2])) {
@@ -138,7 +140,7 @@ static void relu2(float *X, const int xdims[2]) {
 
 // From book chapter Figure 16.5
 static void average_pool(const float *X, const int xdims[4], const int pool_size, float *Y, const int ydims[4]) {
-    
+
     for (const auto i : range(0, ydims[0])) {
         for (const auto m : range(0, ydims[3])) {
             for (const auto w : range(0, ydims[2])) {
@@ -154,7 +156,7 @@ static void average_pool(const float *X, const int xdims[4], const int pool_size
             }
         }
     }
-    
+
 }
 
 static void fully_forward(const float *X, const int xdims[2], float *W, const int wdims[2], float *Y, const int ydims[2]) {
@@ -195,16 +197,16 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
     const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1), (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
     auto a = zeros<float>(adims);
     conv_forward_valid(x, xdims, conv1, conv1dims, a, adims);
-    
+
     /// relu layer
     relu4(a, adims);
-    
+
     // average pooling
     const int pool_size = 2;
     const int bdims[]   = {adims[0], adims[1] / pool_size, adims[2] / pool_size, adims[3]};
     auto b = zeros<float>(bdims);
     average_pool(a, adims, pool_size, b, bdims);
-  
+
     // conv layer
     const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1), (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
     auto c = zeros<float>(cdims);
@@ -212,30 +214,30 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
 
     // relu
     relu4(c, cdims);
-    
+
     // average pooling
     const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size, cdims[3]};
     auto d = zeros<float>(ddims);
     average_pool(c, cdims, pool_size, d, ddims);
-    
+
     // reshape
     const int ddims2[] = {ddims[0], ddims[1] * ddims[2] * ddims[3]};
-    
+
     // matrix multiplication
     const int edims[] = {ddims[0], fc1dims[1]};
     auto e = zeros<float>(edims);
     fully_forward(d, ddims2, fc1, fc1dims, e, edims);
-    
+
     // relu
     relu2(e, edims);
-    
+
     // matrix multiplication
     const int fdims[] = {edims[0], fc2dims[1]};
     auto f = zeros<float>(fdims);
     fully_forward(e, edims, fc2, fc2dims, f, fdims);
-    
+
     argmax(f, fdims, out);
-    
+
     delete[] a;
     delete[] b;
     delete[] c;
@@ -245,7 +247,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
 }
 
 int main(int argc, char **argv) {
-    
+
     if (argc != 3 && argc != 4) {
         std::cerr << "\n"
                   << "This program performs the forward opertion step for "
@@ -274,37 +276,37 @@ int main(int argc, char **argv) {
     }
     xdims[0] = FLAGS_batch_size;
     rdims[0] = FLAGS_batch_size;
-    
+
     // Load data into x and y
     float *x = allocate<float>(xdims);
     float *y = allocate<float>(rdims);
     loadData(x, y);
-    
+
     // Load model
     float *conv1 = allocate<float>(conv1dims);
     float *conv2 = allocate<float>(conv2dims);
     float *fc1   = allocate<float>(fc1dims);
     float *fc2   = allocate<float>(fc2dims);
     loadModel(conv1, conv2, fc1, fc2);
-    
+
     // Perform foward opertion
     int *out = zeros<int>(FLAGS_batch_size);
-    
+
     // get start time
     const auto start = now();
-    
+
     forward_operation(x, conv1, conv2, fc1, fc2, out);
-    
+
     // get end time
     const auto end = now();
-    
+
     // get elapsed time in milliseconds
     const auto elapsed = std::chrono::duration<double, std::milli>(end - start).count();
-    
+
     // Get reference
     int *ref = zeros<int>(FLAGS_batch_size);
     argmax(y, rdims, ref);
-    
+
     // Calculate correctness
     int num_correct = 0;
     for (const auto i : range(0, FLAGS_batch_size)) {
@@ -315,7 +317,7 @@ int main(int argc, char **argv) {
     std::cout << "Done with " << FLAGS_batch_size << " queries in "
               << "elapsed = " << elapsed << " milliseconds. Correctness: "
               << static_cast<float>(num_correct) / FLAGS_batch_size << "\n";
-    
+
     delete[] x;
     delete[] y;
     delete[] conv1;
@@ -324,6 +326,6 @@ int main(int argc, char **argv) {
     delete[] fc2;
     delete[] out;
     delete[] ref;
-    
+
     return 0;
 }
