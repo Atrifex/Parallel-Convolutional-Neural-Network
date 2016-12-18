@@ -15,18 +15,24 @@ int main(int argc, char **argv) {
     cudaGetDeviceProperties(&deviceProp, dev);
 
     if (dev == 0) {
-      if (deviceProp.major == 9999 && deviceProp.minor == 9999) {
+      if (deviceProp.major == 9999 && deviceProp.minor == 9999)
+      {
         cout << "No CUDA GPU has been detected" << endl;
         return -1;
-      } else if (deviceCount == 1) {
+      }
+      else if (deviceCount == 1)
+      {
         //@@ WbLog is a provided logging API (similar to Log4J).
         //@@ The logging function wbLog takes a level which is either
         //@@ OFF, FATAL, ERROR, WARN, INFO, DEBUG, or TRACE and a
         //@@ message to be printed.
         cout << "There is 1 device supporting CUDA" << endl;
-      } else {
-        cout << "There are " << deviceCount << " devices supporting CUDA" << endl;
       }
+      else
+      {
+        cout << "Device count: " << deviceCount << endl;
+      }
+
     }
 
     cout << "Device " << dev << " name: "
@@ -46,4 +52,3 @@ int main(int argc, char **argv) {
   return 0;
 
 }
-
