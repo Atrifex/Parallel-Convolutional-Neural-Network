@@ -208,7 +208,8 @@ int main(int argc, char **argv) {
     } else if (argc == 4) {
         FLAGS_batch_size = atoi(argv[3]);
     }
-
+    xdims[0] = FLAGS_batch_size;
+    rdims[0] = FLAGS_batch_size;
     // Load data into x and y
     float *x = allocate<float>(xdims);
     float *y = allocate<float>(rdims);
