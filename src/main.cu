@@ -141,11 +141,11 @@ __global__ void matrixMultiplyShared(float *A, float *B, float *C,
     __shared__ float Bds[TILE_WIDTH][TILE_WIDTH];
 
     // Get row and column of the output element this thread is working on
-        int CRow = blockIdx.y*blockDim.y + threadIdx.y;
-        int CCol = blockIdx.x*blockDim.x + threadIdx.x;
+    int CRow = blockIdx.y*blockDim.y + threadIdx.y;
+    int CCol = blockIdx.x*blockDim.x + threadIdx.x;
 
     // Idea: in each "phase," have threads collaboratively load subsets of A and B elements
-      // into the shared memory before they individually use these elements in dot product calculation.
+    // into the shared memory before they individually use these elements in dot product calculation.
     // These A and B subsets are referred to as "tiles"; they are the same size as the block dimensions
     // (16 in our case).  We need enough phases such that the tiles span the entire image- we'll also
     // need checks to ensure our algorithm works in the case of output dimensions that are not a multiple of
@@ -444,53 +444,6 @@ void convLayer_forward_reg(int N, int M, int C, int H, int W, int K, float* Mask
   cudaFree(device_W);
 }
 
-
-// void average_pool_streamed(int N, int M, int C, int H, int W, int K, float* Mask, float* device_Y, const int ydims[4], float * device_X, float * device_X_unrolled0, float * device_X_unrolled1, float * device_X_unrolled2, float * device_W, float * device_W_unrolled, float * device_Y_unrolled)
-// {
-
-
-
-//     // Create CUDA streams
-//     cudaStream_t stream0, stream1, stream2;
-//     cudaStreamCreate(&stream0);
-//     cudaStreamCreate(&stream1);
-//     cudaStreamCreate(&stream2);
-
-
-//     int N = adims[0];
-//     int M = conv1dims[3];
-//     int Z = ((bdims[2]-1)/TILE_WIDTH+1)*((bdims[1]-1)/TILE_WIDTH+1);//adims[2]*adims[1];
-//     // dim3 blockDimPool1(TILE_WIDTH, TILE_WIDTH, 1);
-//     // dim3 gridDimPool1(N, M, Z);
-
-//     // Initialize the grid and block dimensions for unrolling
-//     dim3 blockDimPool();
-//     dim3 gridDimPool(1, M, Z);
-
-
-//     // Unroll input using multiple kernel launches with streams
-//     for (int n = 0; n < N; n+=3)
-//     {
-//         // Parallel input unroll
-//         average_pool_kernel<<<gridDimPool, blockDimPool, 0, stream0>>>(deviceInputPool2, deviceOutputPool2, cdims[1], cdims[2], cdims[3], ddims[1], ddims[2], ddims[3], pool_size);
-//         if(n+1 < N){
-//             average_pool_kernel<<<gridDimPool, blockDimPool, 0, stream1>>>(deviceInputPool2, deviceOutputPool2, cdims[1], cdims[2], cdims[3], ddims[1], ddims[2], ddims[3], pool_size);
-//         }
-//         if(n+2 < N){
-//             average_pool_kernel<<<gridDimPool, blockDimPool, 0, stream2>>>(deviceInputPool2, deviceOutputPool2, cdims[1], cdims[2], cdims[3], ddims[1], ddims[2], ddims[3], pool_size);
-//         }
-
-//         unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream0>>>(C, H, W, K, device_X+n*C*H*W, device_X_unrolled0);
-//         if(n+1 < N){
-//           unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream1>>>(C, H, W, K, device_X+(n+1)*C*H*W, device_X_unrolled1);
-//         }
-//         if(n+2 < N){
-//           unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream2>>>(C, H, W, K, device_X+(n+2)*C*H*W, device_X_unrolled2);
-//         }
-//     }
-
-// }
-
 // CUDA kernel for average pool
 __global__ void average_pool_kernel(float *X, float *Y, int xdims_1, int xdims_2, int xdims_3, int ydims_1, int ydims_2, int ydims_3, int pool_size) {
 
@@ -513,29 +466,6 @@ __global__ void average_pool_kernel(float *X, float *Y, int xdims_1, int xdims_2
         Y[yoffset] = acc;
     }
 }
-
-// From book chapter Figure 16.5
-static void average_pool(const float *X, const int xdims[4],
-                         const int pool_size, float *Y, const int ydims[4]) {
-    for (const auto i : range(0, ydims[0])) { // sample size
-        for (const auto m : range(0, ydims[3])) { // num feature maps
-            for (const auto w : range(0, ydims[2])) { // cols
-                for (const auto h : range(0, ydims[1])) { // rows
-                    for (const auto p : range(0, pool_size)) {
-                        for (const auto q : range(0, pool_size)) {
-                            const auto yoffset = ((i * ydims[1] + h) * ydims[2] + w) * ydims[3] + m;
-                            const auto xoffset = i * xdims[1] * xdims[2] * xdims[3] +
-                                (pool_size * h + p) * xdims[2] * xdims[3] +
-                                (pool_size * w + q) * xdims[3] + m;
-                            Y[yoffset] += X[xoffset] / (1.0f * pool_size * pool_size);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 
 // Choose the guess with largest score
 static void argmax(const float *X, const int xdims[2], int *Y) {
@@ -649,40 +579,29 @@ void setup_cuda_mem()
 void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
                        float *fc2, int *out) {
 
-     // conv layer 1 vars
+    // conv layer 1 vars
     const int adims[] = {xdims[0], (xdims[1] - conv1dims[0] + 1),
                          (xdims[2] - conv1dims[1] + 1), conv1dims[3]};
-    auto a = zeros<float>(adims);
-    auto conv1Output = zeros<float>(adims);
 
     // avg pool 1 vars
     const int pool_size = 2;
     const int bdims[]   = {adims[0], adims[1] / pool_size, adims[2] / pool_size,
                            adims[3]};
-    auto b = zeros<float>(bdims);
-    auto pool1Output = zeros<float>(bdims);
 
     // conv layer 2 vars
     const int cdims[] = {bdims[0], (bdims[1] - conv2dims[0] + 1),
                          (bdims[2] - conv2dims[1] + 1), conv2dims[3]};
-    auto c = zeros<float>(cdims);
-    auto conv2Output = zeros<float>(cdims);
 
     // avg pool 2 vars
     const int ddims[] = {cdims[0], cdims[1] / pool_size, cdims[2] / pool_size,
                          cdims[3]};
-    auto d = zeros<float>(ddims);
-    auto pool2Output = zeros<float>(ddims);
 
     // fully connected layer 1 vars
     const int ddims2[] = {ddims[0], ddims[1] * ddims[2] * ddims[3]};
     const int edims[] = {ddims[0], fc1dims[1]};
-    auto e = zeros<float>(edims);
 
     // fully connected layer 2 vars
     const int fdims[] = {edims[0], fc2dims[1]};
-    auto f = zeros<float>(fdims);
-
 
     /*********************************************** CONV 1 Layer ************************************************/
     // Done using unrolling and matrix-matrix multiplication
@@ -708,12 +627,10 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     average_pool_kernel<<<gridDimPool1, blockDimPool1>>>(deviceInputPool1, deviceOutputPool1, adims[1], adims[2], adims[3], bdims[1], bdims[2], bdims[3], pool_size);
     cudaDeviceSynchronize();
 
-    // check_success(cudaMemcpy(conv1Output, deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
+    // avg pool memory freed
+    cudaFree(deviceInputPool1);
 
-    // average_pool(conv1Output, adims, pool_size, b, bdims);
-
-    // device_X_L2 = deviceOutputPool1;
-    // check_success(cudaMemcpy(device_X_L2, b, bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
+    device_X_L2 = deviceOutputPool1;
 
     /*********************************************** CONV 2 Layer ************************************************/
     // Done using unrolling and matrix-matrix multiplication
@@ -742,16 +659,9 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     // avg pool memory freed
     cudaFree(deviceInputPool2);
 
-    // check_success(cudaMemcpy(conv2Output, deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*conv2dims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
-
-    // average_pool(conv2Output, cdims, pool_size, d, ddims);
-
-    // deviceInputFullyForward1 = deviceOutputPool2;
-    // check_success(cudaMemcpy(deviceInputFullyForward1, d, ddims[0]*ddims[1]*ddims[2]*ddims[3]*xdims[3]*sizeof(float), cudaMemcpyHostToDevice));
-
-
     /*********************************************** FULLY CONNECTED 1 Layer ************************************************/
     // allocate memory for device fully connected layer 1
+    deviceInputFullyForward1 = deviceOutputPool2;
 
     // copy data to device
     check_success(cudaMemcpy(deviceMaskFullyForward1, fc1, ddims2[1]*fc1dims[1]*sizeof(float),cudaMemcpyHostToDevice));
