@@ -444,6 +444,53 @@ void convLayer_forward_reg(int N, int M, int C, int H, int W, int K, float* Mask
   cudaFree(device_W);
 }
 
+
+// void average_pool_streamed(int N, int M, int C, int H, int W, int K, float* Mask, float* device_Y, const int ydims[4], float * device_X, float * device_X_unrolled0, float * device_X_unrolled1, float * device_X_unrolled2, float * device_W, float * device_W_unrolled, float * device_Y_unrolled)
+// {
+
+
+
+//     // Create CUDA streams
+//     cudaStream_t stream0, stream1, stream2;
+//     cudaStreamCreate(&stream0);
+//     cudaStreamCreate(&stream1);
+//     cudaStreamCreate(&stream2);
+
+
+//     int N = adims[0];
+//     int M = conv1dims[3];
+//     int Z = ((bdims[2]-1)/TILE_WIDTH+1)*((bdims[1]-1)/TILE_WIDTH+1);//adims[2]*adims[1];
+//     // dim3 blockDimPool1(TILE_WIDTH, TILE_WIDTH, 1);
+//     // dim3 gridDimPool1(N, M, Z);
+
+//     // Initialize the grid and block dimensions for unrolling
+//     dim3 blockDimPool();
+//     dim3 gridDimPool(1, M, Z);
+
+
+//     // Unroll input using multiple kernel launches with streams
+//     for (int n = 0; n < N; n+=3)
+//     {
+//         // Parallel input unroll
+//         average_pool_kernel<<<gridDimPool, blockDimPool, 0, stream0>>>(deviceInputPool2, deviceOutputPool2, cdims[1], cdims[2], cdims[3], ddims[1], ddims[2], ddims[3], pool_size);
+//         if(n+1 < N){
+//             average_pool_kernel<<<gridDimPool, blockDimPool, 0, stream1>>>(deviceInputPool2, deviceOutputPool2, cdims[1], cdims[2], cdims[3], ddims[1], ddims[2], ddims[3], pool_size);
+//         }
+//         if(n+2 < N){
+//             average_pool_kernel<<<gridDimPool, blockDimPool, 0, stream2>>>(deviceInputPool2, deviceOutputPool2, cdims[1], cdims[2], cdims[3], ddims[1], ddims[2], ddims[3], pool_size);
+//         }
+
+//         unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream0>>>(C, H, W, K, device_X+n*C*H*W, device_X_unrolled0);
+//         if(n+1 < N){
+//           unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream1>>>(C, H, W, K, device_X+(n+1)*C*H*W, device_X_unrolled1);
+//         }
+//         if(n+2 < N){
+//           unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream2>>>(C, H, W, K, device_X+(n+2)*C*H*W, device_X_unrolled2);
+//         }
+//     }
+
+// }
+
 // CUDA kernel for average pool
 __global__ void average_pool_kernel(float *X, float *Y, int xdims_1, int xdims_2, int xdims_3, int ydims_1, int ydims_2, int ydims_3, int pool_size) {
 
@@ -650,23 +697,23 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     deviceInputPool1 = deviceOutputConv1;
 
     /*********************************************** AVG POOL 1 Layer ************************************************/
-    // // kernel dims
+    // kernel dims
     int N = adims[0];
     int M = conv1dims[3];
     int Z = ((bdims[2]-1)/TILE_WIDTH+1)*((bdims[1]-1)/TILE_WIDTH+1);//adims[2]*adims[1];
-    // dim3 blockDimPool1(TILE_WIDTH, TILE_WIDTH, 1);
-    // dim3 gridDimPool1(N, M, Z);
+    dim3 blockDimPool1(TILE_WIDTH, TILE_WIDTH, 1);
+    dim3 gridDimPool1(N, M, Z);
 
-    // // avg pool 1 launch
-    // average_pool_kernel<<<gridDimPool1, blockDimPool1>>>(deviceInputPool1, deviceOutputPool1, adims[1], adims[2], adims[3], bdims[1], bdims[2], bdims[3], pool_size);
-    // cudaDeviceSynchronize();
+    // avg pool 1 launch
+    average_pool_kernel<<<gridDimPool1, blockDimPool1>>>(deviceInputPool1, deviceOutputPool1, adims[1], adims[2], adims[3], bdims[1], bdims[2], bdims[3], pool_size);
+    cudaDeviceSynchronize();
 
-    check_success(cudaMemcpy(conv1Output, deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
+    // check_success(cudaMemcpy(conv1Output, deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
 
-    average_pool(conv1Output, adims, pool_size, b, bdims);
+    // average_pool(conv1Output, adims, pool_size, b, bdims);
 
-    device_X_L2 = deviceOutputPool1;
-    check_success(cudaMemcpy(device_X_L2, b, bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
+    // device_X_L2 = deviceOutputPool1;
+    // check_success(cudaMemcpy(device_X_L2, b, bdims[0]*bdims[1]*bdims[2]*bdims[3]*xdims[3]*sizeof(float),cudaMemcpyHostToDevice));
 
     /*********************************************** CONV 2 Layer ************************************************/
     // Done using unrolling and matrix-matrix multiplication
@@ -681,26 +728,26 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     deviceInputPool2 = deviceOutputConv2;
 
     /*********************************************** AVG POOL 2 Layer ************************************************/
-    // // kernel dims
-    // N = cdims[0];
-    // M = conv2dims[3];
-    // Z = ((ddims[2]-1)/TILE_WIDTH+1)*((ddims[1]-1)/TILE_WIDTH+1);//adims[2]*adims[1];
-    // dim3 blockDimPool2(TILE_WIDTH, TILE_WIDTH, 1);
-    // dim3 gridDimPool2(N, M, Z);
+    // kernel dims
+    N = cdims[0];
+    M = conv2dims[3];
+    Z = ((ddims[2]-1)/TILE_WIDTH+1)*((ddims[1]-1)/TILE_WIDTH+1);//adims[2]*adims[1];
+    dim3 blockDimPool2(TILE_WIDTH, TILE_WIDTH, 1);
+    dim3 gridDimPool2(N, M, Z);
 
-    // // Second average pool kernel launch
-    // average_pool_kernel<<<gridDimPool2, blockDimPool2>>>(deviceInputPool2, deviceOutputPool2, cdims[1], cdims[2], cdims[3], ddims[1], ddims[2], ddims[3], pool_size);
-    // cudaDeviceSynchronize();
+    // Second average pool kernel launch
+    average_pool_kernel<<<gridDimPool2, blockDimPool2>>>(deviceInputPool2, deviceOutputPool2, cdims[1], cdims[2], cdims[3], ddims[1], ddims[2], ddims[3], pool_size);
+    cudaDeviceSynchronize();
 
-    // // avg pool memory freed
-    // cudaFree(deviceInputPool2);
+    // avg pool memory freed
+    cudaFree(deviceInputPool2);
 
-    check_success(cudaMemcpy(conv2Output, deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*conv2dims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
+    // check_success(cudaMemcpy(conv2Output, deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*conv2dims[3]*xdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
 
-    average_pool(conv2Output, cdims, pool_size, d, ddims);
+    // average_pool(conv2Output, cdims, pool_size, d, ddims);
 
-    deviceInputFullyForward1 = deviceOutputPool2;
-    check_success(cudaMemcpy(deviceInputFullyForward1, d, ddims[0]*ddims[1]*ddims[2]*ddims[3]*xdims[3]*sizeof(float), cudaMemcpyHostToDevice));
+    // deviceInputFullyForward1 = deviceOutputPool2;
+    // check_success(cudaMemcpy(deviceInputFullyForward1, d, ddims[0]*ddims[1]*ddims[2]*ddims[3]*xdims[3]*sizeof(float), cudaMemcpyHostToDevice));
 
 
     /*********************************************** FULLY CONNECTED 1 Layer ************************************************/
