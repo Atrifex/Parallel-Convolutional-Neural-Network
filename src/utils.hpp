@@ -23,17 +23,6 @@ bool check_success<herr_t>(const herr_t &err) {
 			        return res;
 }
 
-template <>
-bool check_success<cudaError_t>(const cudaError_t &err) {
-	  const auto res = err >= static_cast<cudaError_t>(0);
-	    if (res == true) {
-		        return res;
-			  }
-			    std::cout << "Failed CUDA operation..." << std::endl;
-			      assert(res);
-			        return res;
-}
-
 template <typename T, size_t N>
 constexpr size_t array_size(const T (&)[N]) {
 	  return N;
