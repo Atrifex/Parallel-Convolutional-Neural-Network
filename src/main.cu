@@ -48,15 +48,13 @@ float * deviceInputFullyForward1, * deviceMaskFullyForward1, * deviceOutputFully
 float * deviceInputFullyForward2, * deviceMaskFullyForward2, * deviceOutputFullyForward2; // fully connected 2 vars
 
 // Buffers for conv layer 1
-float * X_unrolled_L1;
 float * device_X0_L1, * device_X1_L1, * device_X2_L1;
 float * device_X_unrolled0_L1, * device_X_unrolled1_L1, * device_X_unrolled2_L1;
 float * device_W_L1, * device_W_unrolled_L1;
 float * device_Y_unrolled_L1;
 
 // Buffers for conv layer 2
-float * X_unrolled_L2;
-float * device_X0_L2, * device_X1_L2, * device_X2_L2;
+float * device_X_L2;
 float * device_X_unrolled0_L2, * device_X_unrolled1_L2, * device_X_unrolled2_L2;
 float * device_W_L2, * device_W_unrolled_L2;
 float * device_Y_unrolled_L2;
@@ -278,7 +276,7 @@ __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll
 }
 
 // Forward convolutional layer: uses unrolling + matrix multiplication!
-void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float* Mask, float* device_Y, const int ydims[4], float * X_unrolled, float * device_X0, float * device_X1, float * device_X2, float * device_X_unrolled0, float * device_X_unrolled1, float * device_X_unrolled2,  float * device_W, float * device_W_unrolled, float * device_Y_unrolled)
+void convLayer_forward_streamed(int N, int M, int C, int H, int W, int K, float* X, float* Mask, float* device_Y, const int ydims[4], float * device_X0, float * device_X1, float * device_X2, float * device_X_unrolled0, float * device_X_unrolled1, float * device_X_unrolled2,  float * device_W, float * device_W_unrolled, float * device_Y_unrolled)
 {
   int W_out = W - K + 1;
   int H_out = H - K + 1;
@@ -355,13 +353,92 @@ void convLayer_forward(int N, int M, int C, int H, int W, int K, float* X, float
   cudaDeviceSynchronize();
 
   // free memory
-  free(X_unrolled);
   cudaFree(device_X_unrolled0);
   cudaFree(device_X_unrolled1);
   cudaFree(device_X_unrolled2);
   cudaFree(device_X0);
   cudaFree(device_X1);
   cudaFree(device_X2);
+  cudaFree(device_W_unrolled);
+  cudaFree(device_Y_unrolled);
+  cudaFree(device_W);
+}
+
+// Forward convolutional layer: uses unrolling + matrix multiplication! but no streams
+void convLayer_forward_reg(int N, int M, int C, int H, int W, int K, float* Mask, float* device_Y, const int ydims[4], float * device_X, float * device_X_unrolled0, float * device_X_unrolled1, float * device_X_unrolled2, float * device_W, float * device_W_unrolled, float * device_Y_unrolled)
+{
+  int W_out = W - K + 1;
+  int H_out = H - K + 1;
+  int H_unroll = C * K * K;
+  int W_unroll = H_out * W_out;
+
+  // dim3's for filter unrolling
+  dim3 blockDimension1(M, 1, 1);
+  dim3 gridDimension1(C, 1, 1);
+
+  // Create CUDA streams
+  cudaStream_t stream0, stream1, stream2;
+  cudaStreamCreate(&stream0);
+  cudaStreamCreate(&stream1);
+  cudaStreamCreate(&stream2);
+
+  // Copy memory and launch kernel to unroll the filter
+  check_success(cudaMemcpy(device_W, Mask, M*C*K*K * sizeof(float), cudaMemcpyHostToDevice));
+
+  unrollFilters<<<gridDimension1, blockDimension1>>>(C, M, K, device_W, device_W_unrolled);
+  cudaDeviceSynchronize();
+
+  // Initialize the grid and block dimensions for unrolling
+  dim3 blockDimensionU(CUDA_MAX_NUM_THREADS, 1, 1);
+  dim3 gridDimensionU(ceil((1.0*C*H_out*W_out)/CUDA_MAX_NUM_THREADS), 1, 1);
+
+  // Initialize the grid and block dimensions for matrix multiplication
+  dim3 blockDimension2(TILE_WIDTH, TILE_WIDTH, 1);
+  dim3 gridDimension2(ceil((1.0*W_unroll)/TILE_WIDTH), ceil((1.0*M)/TILE_WIDTH), 1);
+
+  // Unroll input using multiple kernel launches with streams
+  for (int n = 0; n < N; n+=3)
+  {
+    // Parallel input unroll
+    unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream0>>>(C, H, W, K, device_X+n*C*H*W, device_X_unrolled0);
+    if(n+1 < N){
+      unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream1>>>(C, H, W, K, device_X+(n+1)*C*H*W, device_X_unrolled1);
+    }
+    if(n+2 < N){
+      unroll_gpu<<<gridDimensionU, blockDimensionU, 0, stream2>>>(C, H, W, K, device_X+(n+2)*C*H*W, device_X_unrolled2);
+    }
+    //cudaStreamSynchronize(stream0);
+
+    // Matrix multiplication
+    matrixMultiplyShared<<<gridDimension2, blockDimension2, 0 , stream0>>>(device_W_unrolled, device_X_unrolled0, &(device_Y_unrolled[n*ydims[1]*ydims[2]*ydims[3]]),
+      M, C*K*K, H_unroll, W_unroll, M, W_unroll);
+    if(n+1 < N){
+      //cudaStreamSynchronize(stream1);
+      matrixMultiplyShared<<<gridDimension2, blockDimension2, 0 , stream1>>>(device_W_unrolled, device_X_unrolled1, &(device_Y_unrolled[(n+1)*ydims[1]*ydims[2]*ydims[3]]),
+        M, C*K*K, H_unroll, W_unroll, M, W_unroll);
+    }
+    if(n+2 < N){
+      //cudaStreamSynchronize(stream2);
+      matrixMultiplyShared<<<gridDimension2, blockDimension2, 0 , stream2>>>(device_W_unrolled, device_X_unrolled2, &(device_Y_unrolled[(n+2)*ydims[1]*ydims[2]*ydims[3]]),
+        M, C*K*K, H_unroll, W_unroll, M, W_unroll);
+    }
+
+  }
+
+  cudaDeviceSynchronize();
+
+  // Now "re-roll" the output Y
+  dim3 blockDimension3(M, 1, 1);
+  dim3 gridDimension3(N, 1, 1);
+
+  rerollOutput<<<gridDimension3, blockDimension3>>>(M, N, H_out, W_out, device_Y_unrolled, device_Y);
+  cudaDeviceSynchronize();
+
+  // free memory
+  cudaFree(device_X_unrolled0);
+  cudaFree(device_X_unrolled1);
+  cudaFree(device_X_unrolled2);
+  cudaFree(device_X);
   cudaFree(device_W_unrolled);
   cudaFree(device_Y_unrolled);
   cudaFree(device_W);
@@ -417,6 +494,7 @@ __global__ void relu_gpu(float *X, const int bounds)
     }
 }
 
+
 void setup_cuda_mem()
 {
     // conv layer 1 vars
@@ -466,7 +544,6 @@ void setup_cuda_mem()
     int H_unroll = C * K * K;
     int W_unroll = H_out * W_out;
 
-    X_unrolled_L1 = (float*)malloc(W_unroll * H_unroll * sizeof(float));
     check_success(cudaMalloc((void**)&device_W_unrolled_L1, M*C*K*K * sizeof(float)));
     check_success(cudaMalloc((void**)&device_W_L1, M*C*K*K * sizeof(float)));
     check_success(cudaMalloc((void**)&device_X_unrolled0_L1, W_unroll * H_unroll * sizeof(float)));
@@ -489,15 +566,11 @@ void setup_cuda_mem()
     H_unroll = C * K * K;
     W_unroll = H_out * W_out;
 
-    X_unrolled_L2 = (float*)malloc(W_unroll * H_unroll * sizeof(float));
     check_success(cudaMalloc((void**)&device_W_unrolled_L2, M*C*K*K * sizeof(float)));
     check_success(cudaMalloc((void**)&device_W_L2, M*C*K*K * sizeof(float)));
     check_success(cudaMalloc((void**)&device_X_unrolled0_L2, W_unroll * H_unroll * sizeof(float)));
     check_success(cudaMalloc((void**)&device_X_unrolled1_L2, W_unroll * H_unroll * sizeof(float)));
     check_success(cudaMalloc((void**)&device_X_unrolled2_L2, W_unroll * H_unroll * sizeof(float)));
-    check_success(cudaMalloc((void**)&device_X0_L2, C * H * W * sizeof(float)));
-    check_success(cudaMalloc((void**)&device_X1_L2, C * H * W * sizeof(float)));
-    check_success(cudaMalloc((void**)&device_X2_L2, C * H * W * sizeof(float)));
     check_success(cudaMalloc((void**)&device_Y_unrolled_L2,  M*N*W_out*H_out* sizeof(float)));
 }
 
@@ -532,7 +605,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     /*********************************************** CONV 1 Layer ************************************************/
     // Done using unrolling and matrix-matrix multiplication
-    convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, deviceOutputConv1, adims, X_unrolled_L1, device_X0_L1, device_X1_L1, device_X2_L1, device_X_unrolled0_L1, device_X_unrolled1_L1, device_X_unrolled2_L1, device_W_L1, device_W_unrolled_L1, device_Y_unrolled_L1);
+    convLayer_forward_streamed(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, deviceOutputConv1, adims, device_X0_L1, device_X1_L1, device_X2_L1, device_X_unrolled0_L1, device_X_unrolled1_L1, device_X_unrolled2_L1, device_W_L1, device_W_unrolled_L1, device_Y_unrolled_L1);
 
     // relu
     dim3 blockDimRELU1(1024, 1, 1);
@@ -554,15 +627,14 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     average_pool_kernel<<<gridDimPool1, blockDimPool1>>>(deviceInputPool1, deviceOutputPool1, adims[1], adims[2], adims[3], bdims[1], bdims[2], bdims[3], pool_size);
     cudaDeviceSynchronize();
 
-    check_success(cudaMemcpy(b, deviceOutputPool1, bdims[0]*bdims[1]*bdims[2]*bdims[3]*sizeof(float), cudaMemcpyDeviceToHost));
-
     // avg pool memory freed
     cudaFree(deviceInputPool1);
-    cudaFree(deviceOutputPool1);
+
+    device_X_L2 = deviceOutputPool1;
 
     /*********************************************** CONV 2 Layer ************************************************/
     // Done using unrolling and matrix-matrix multiplication
-    convLayer_forward(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], b, conv2, deviceOutputConv2, cdims, X_unrolled_L2, device_X0_L2, device_X1_L2, device_X2_L2, device_X_unrolled0_L2,  device_X_unrolled1_L2,  device_X_unrolled2_L2, device_W_L2,  device_W_unrolled_L2, device_Y_unrolled_L2);
+    convLayer_forward_reg(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], conv2, deviceOutputConv2, cdims, device_X_L2, device_X_unrolled0_L2, device_X_unrolled1_L2, device_X_unrolled2_L2, device_W_L2,  device_W_unrolled_L2, device_Y_unrolled_L2);
 
     // relu
     dim3 blockDimRELU2(1024, 1, 1);
