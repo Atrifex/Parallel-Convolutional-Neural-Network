@@ -37,7 +37,7 @@ static int conv2dims[] = {5, 5, 32, 64};
 static int fc1dims[]   = {1024, 128};
 static int fc2dims[]   = {128, 10};
 
-float * b, * e, * f;
+float * fullyForwardOut2;
 
 // CUDA device buffers
 float * deviceOutputConv1;  // conv 1 vars
@@ -518,9 +518,7 @@ void setup_cuda_mem()
     const int fdims[] = {edims[0], fc2dims[1]};
 
 
-    b = zeros<float>(bdims);
-    e = zeros<float>(edims);
-    f = zeros<float>(fdims);
+    fullyForwardOut2 = zeros<float>(fdims);
 
     // forward_operation
     check_success(cudaMalloc((void**)&deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]*xdims[3]*sizeof(float)));
@@ -702,7 +700,7 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     cudaDeviceSynchronize();
 
     // copy output data back from device
-    check_success(cudaMemcpy(f, deviceOutputFullyForward2, fdims[0]*fdims[1]*sizeof(float), cudaMemcpyDeviceToHost));
+    check_success(cudaMemcpy(fullyForwardOut2, deviceOutputFullyForward2, fdims[0]*fdims[1]*sizeof(float), cudaMemcpyDeviceToHost));
 
     // freeing device memory for fc2 layer
     cudaFree(deviceInputFullyForward2);
@@ -710,12 +708,10 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     cudaFree(deviceOutputFullyForward2);
 
     /*********************************************** GAUSSIAN Layer ************************************************/
-    argmax(f, fdims, out);
+    argmax(fullyForwardOut2, fdims, out);
 
     // freeing host buffers
-    delete[] b;
-    delete[] e;
-    delete[] f;
+    delete[] fullyForwardOut2;
 }
 
 int main(int argc, char **argv) {
