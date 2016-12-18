@@ -182,6 +182,33 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
 }
 
 int main(int argc, char **argv) {
+  if (argc != 3 && argc != 4) {
+        std::cerr << "\n"
+                  << "This program performs the forward opertion step for "
+            "Convolutional Neural Network(CNN).  "
+            "Sample usage: \n"
+                  << argv[0]
+                  << " [../data/test10.hdf5] [../data/model.hdf5] [10]\n";
+        return -1;
+    }
+    FLAGS_testdata = std::string(argv[1]);
+    FLAGS_model    = std::string(argv[2]);
+    if (argc == 3) {
+        const std::map<std::string, int> default_batch_sizes{
+            {"../data/test2.hdf5", 2},
+            {"../data/test10.hdf5", 10},
+            {"../data/test100.hdf5", 100},
+            {"../data/testfull.hdf5", 10000}};
+        const auto batch_size_in_map = default_batch_sizes.find(FLAGS_testdata);
+        if (batch_size_in_map == default_batch_sizes.end()) {
+            std::cerr << "\nERROR:: Unrecognized file " << FLAGS_testdata << " batch_size must be specified.\n";
+            return -1;
+        }
+        FLAGS_batch_size = batch_size_in_map->second;
+    } else if (argc == 4) {
+        FLAGS_batch_size = atoi(argv[3]);
+    }
+
     // Load data into x and y
     float *x = allocate<float>(xdims);
     float *y = allocate<float>(rdims);
