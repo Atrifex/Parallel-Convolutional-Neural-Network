@@ -19,7 +19,7 @@
 
 // Same as block dimension
 #define TILE_WIDTH 16
-#define MULT_TW 40
+#define MULT_TW 32
 
 // Wild assumption
 #define CUDA_MAX_NUM_THREADS 1024
