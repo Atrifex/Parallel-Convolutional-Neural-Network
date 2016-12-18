@@ -91,12 +91,15 @@ endif (UNIX)
 # Add debugging to CUDA NVCC flags (for NVidia's NSight tools)
 # set(CUDA_NVCC_FLAGS_DEBUG ${CUDA_NVCC_FLAGS_DEBUG} "-G")
 
-# GOTTA GO FAST
+# GOTTA GO FAST (compiler optimization)
 list(APPEND CUDA_NVCC_FLAGS -Xptxas --verbose)
 list(APPEND CUDA_NVCC_FLAGS -O3)
 
 ################################
 ################################
+
+# Find libaries (cuFFT, also potentially cuDNN/cuBLAS for comparison purposes)
+find_cuda_helper_libs(cufft)
 
 include_directories(
     "${ZLIB_INCLUDE_DIRS}"
@@ -112,6 +115,7 @@ cuda_add_executable(${PROJECT_TARGET} ${SOURCES})
 target_link_libraries(${PROJECT_TARGET}
     ${HDF5_LIBRARIES}
     ${ZLIB_LIBRARIES}
+    ${CUDA_cufft_LIBRARY} # Link with cuFFT library
 )
 
 # Add a special target to clean nvcc generated files.

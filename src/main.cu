@@ -8,6 +8,7 @@
 #include <valarray>
 
 #include <hdf5.h>
+#include <cufft.h>
 
 #include "range.hpp"
 #include "utils.hpp"
@@ -218,6 +219,17 @@ __global__ void unrollFilters(int C, int M, int K, float * W, float * W_unroll)
       }
     }
   }
+}
+
+__global__ void reOrganizeInput(int C, int H, int W, int N, float* X, float* X_reo)
+{
+  int n = blockIdx.x;
+  int c = blockIdx.y;
+  int w = threadIdx.x;
+  int h = threadIdx.y;
+
+  if(h < H && w < W)
+    X_reo[n*C*H*W + c*H*W + h*W + w] = X[n*H*W*C + h*W*C + w*C + c];
 }
 
 // Parallel implementation of the output reroll
@@ -532,7 +544,40 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
 
     /*********************************************** CONV 1 Layer ************************************************/
     // Done using unrolling and matrix-matrix multiplication
-    convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, deviceOutputConv1, adims, X_unrolled_L1, device_X0_L1, device_X1_L1, device_X2_L1, device_X_unrolled0_L1, device_X_unrolled1_L1, device_X_unrolled2_L1, device_W_L1, device_W_unrolled_L1, device_Y_unrolled_L1);
+    //convLayer_forward(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, deviceOutputConv1, adims, X_unrolled_L1, device_X0_L1, device_X1_L1, device_X2_L1, device_X_unrolled0_L1, device_X_unrolled1_L1, device_X_unrolled2_L1, device_W_L1, device_W_unrolled_L1, device_Y_unrolled_L1);
+
+    float * device_W_FFT1, * device_W_Reo_FFT1, * device_X_FFT1, * device_X_Reo_FFT1;
+
+    check_success(cudaMalloc((void**)device_W_FFT1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]* sizeof(float)));
+    check_success(cudaMalloc((void**)device_W_Reo_FFT1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]* sizeof(float)));
+    check_success(cudaMalloc((void**)device_X_FFT1, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*sizeof(float)));
+    check_success(cudaMalloc((void**)device_X_Reo_FFT1, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*sizeof(float)));
+
+    // Unroll filters to put them in a representation conducive to FFT
+    dim3 blockDimUFFT1(conv1dims[3], 1, 1);
+    dim gridDimUFFT1(conv1dims[2], 1, 1);
+
+    // Copy memory and launch kernel to unroll the filter
+    check_success(cudaMemcpy(device_W_FFT1, conv1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]* sizeof(float), cudaMemcpyHostToDevice));
+    unrollFilters<<<gridDimUFFT1, blockDimUFFT1>>>(conv1dims[2], conv1dims[3], conv1dims[0], device_W_FFT1, device_W_Reo_FFT1);
+    cudaDeviceSynchronize();
+    // Copy memory back to host
+    check_success(cudaMemcpy(conv1, device_W_Reo_FFT1, conv1dims[0]*conv1dims[1]*conv1dims[2]*conv1dims[3]* sizeof(float), cudaMemcpyDeviceToHost));
+
+    dim3 blockDimUFFT2(xdims[2], xdims[1], 1);
+    dim3 gridDimUFFT2(xdims[0], conv1dims[2], 1);
+
+    check_success(cudaMemcpy(device_X_FFT1, x, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*sizeof(float), cudaMemcpyHostToDevice));
+    reOrganizeInput<<<gridDimUFFT2, blockDimUFFT2>>>(conv1dims[2], xdims[1], xdims[2], xdims[0], device_X_FFT1, device_X_Reo_FFT1);
+    cudaDeviceSynchronize();
+    check_success(cudaMemcpy(x, device_X_Reo_FFT1, xdims[0]*xdims[1]*xdims[2]*conv1dims[2]*sizeof(float), cudaMemcpyDeviceToHost));
+
+    // FFT convolution implementation
+    cufftHandle plan_input, plan_filter, plan_output;
+
+    if(cufftPlanMany(&plan_input, 2, , CUFFT_R2C) != CUFFT_SUCCESS)
+      cout << "Failed to create cuFFT plan" << endl;
+
 
     // relu
     dim3 blockDimRELU1(1024, 1, 1);
