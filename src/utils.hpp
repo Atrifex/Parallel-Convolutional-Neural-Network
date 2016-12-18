@@ -6,7 +6,7 @@
 #ifdef __GNUC__
 #define unused __attribute__((unused))
 #else // __GNUC__
-#define uinused
+#define unused
 #endif // __GNUC__
 
 template <typename T>
@@ -23,4 +23,65 @@ bool check_success<herr_t>(const herr_t &err) {
 			        return res;
 }
 
-#endif
+template <>
+bool check_success<cudaError_t>(const cudaError_t &err) {
+	  const auto res = err >= static_cast<cudaError_t>(0);
+	    if (res == true) {
+		        return res;
+			  }
+			    std::cout << "Failed CUDA operation..." << std::endl;
+			      assert(res);
+			        return res;
+}
+
+template <typename T, size_t N>
+constexpr size_t array_size(const T (&)[N]) {
+	  return N;
+}
+
+template <typename SzTy, size_t N>
+static size_t flattened_length(const SzTy (&idims)[N]) {
+	  const auto dims = std::valarray<SzTy>(idims, N);
+	    size_t len      = std::accumulate(std::begin(dims), std::end(dims), 1,
+	                                   std::multiplies<SzTy>());
+	      return len;
+}
+
+template <typename SzTy>
+static size_t flattened_length(const SzTy n) {
+	  return static_cast<size_t>(n);
+}
+
+template <typename T, typename SzTy>
+static T *allocate(const SzTy len) {
+	  T *res = new T[len];
+	    return res;
+}
+
+template <typename T, typename SzTy, size_t N>
+static T *allocate(const SzTy (&dims)[N]) {
+	  const auto len = flattened_length(dims);
+	    return allocate<T>(len);
+}
+
+template <typename T, typename SzTy>
+static T *zeros(const SzTy len) {
+	  T *res = allocate<T, SzTy>(len);
+	    std::fill(res, res + len, static_cast<T>(0));
+	      return res;
+}
+
+template <typename T, typename SzTy, size_t N>
+static T *zeros(const SzTy (&dims)[N]) {
+	  const auto len = flattened_length(dims);
+	    T *res         = allocate<T, SzTy>(len);
+	      std::fill(res, res + len, static_cast<T>(0));
+	        return res;
+}
+
+static std::chrono::time_point<std::chrono::high_resolution_clock> now() {
+	  return std::chrono::high_resolution_clock::now();
+}
+
+#endif // __UTILS_HPP__
+

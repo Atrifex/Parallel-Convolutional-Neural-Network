@@ -20,8 +20,8 @@
 using namespace std;
 
 static int FLAGS_batch_size = 10000;
-static string FLAGS_testdata;
-static string FLAGS_model;
+static std::string FLAGS_testdata{};
+static std::string FLAGS_model{};
 
 // Data and reference data dimensions
 static int xdims[] = {FLAGS_batch_size, NUM_ROWS, NUM_COLS, NUM_CHANNELS};
