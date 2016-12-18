@@ -7,8 +7,6 @@
 #include <sys/time.h>
 #include <valarray>
 
-#include <hdf5.h>
-
 #include "range.hpp"
 #include "utils.hpp"
 
@@ -32,69 +30,6 @@ static int conv1dims[] = {5, 5, 1, 32};
 static int conv2dims[] = {5, 5, 32, 64};
 static int fc1dims[]   = {1024, 128};
 static int fc2dims[]   = {128, 10};
-
-static int loadData(float *x, float *y) {
-  // Open the data file
-  const auto file_id = H5Fopen(FLAGS_testdata.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
-
-  // Open the dataset x and y
-  const auto x_id = H5Dopen2(file_id, "/x", H5P_DEFAULT);
-  const auto y_id = H5Dopen2(file_id, "/y", H5P_DEFAULT);
-
-  // Get the dataset x dimensions
-  const auto xspace = H5Dget_space(x_id);
-  const auto xndims = H5Sget_simple_extent_ndims(xspace);
-  assert(xndims == 4);
-
-  hsize_t input_dims[xndims];
-  H5Sget_simple_extent_dims(xspace, input_dims, NULL);
-  if (input_dims[0] != FLAGS_batch_size) {
-    std::cout << "data size does not match batch size specified!\n";
-    return 1; // return error
-  }
-  std::cout << "input dimensions = " << input_dims[0] << " x " << input_dims[1]
-            << " x " << input_dims[2] << " x " << input_dims[3] << "\n";
-
-  // Read the dataset x and y
-  check_success(H5Dread(x_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, x));
-  check_success(H5Dread(y_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, y));
-
-  // Close the dataset x and y
-  check_success(H5Dclose(x_id));
-  check_success(H5Dclose(y_id));
-
-  // Close the file
-  check_success(H5Fclose(file_id));
-
-  // return success
-  return 0;
-}
-
-static void loadModel(float *conv1, float *conv2, float *fc1, float *fc2) {
-  // Open the model file
-  const auto file_id = H5Fopen(FLAGS_model.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
-
-  // Open the dataset
-  const auto conv1_id = H5Dopen2(file_id, "/conv1", H5P_DEFAULT);
-  const auto conv2_id = H5Dopen2(file_id, "/conv2", H5P_DEFAULT);
-  const auto fc1_id   = H5Dopen2(file_id, "/fc1", H5P_DEFAULT);
-  const auto fc2_id   = H5Dopen2(file_id, "/fc2", H5P_DEFAULT);
-
-  // Read the dataset
-  check_success(H5Dread(conv1_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, conv1));
-  check_success(H5Dread(conv2_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, conv2));
-  check_success(H5Dread(fc1_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, fc1));
-  check_success(H5Dread(fc2_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, fc2));
-
-  // Close the dataset x and y
-  check_success(H5Dclose(conv1_id));
-  check_success(H5Dclose(conv2_id));
-  check_success(H5Dclose(fc1_id));
-  check_success(H5Dclose(fc2_id));
-
-  // Close the file
-  check_success(H5Fclose(file_id));
-}
 
 // From book chapter Figure 16.4
 static void conv_forward_valid(const float *X, const int xdims[4],
@@ -247,47 +182,15 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1, float *
 }
 
 int main(int argc, char **argv) {
-
-    if (argc != 3 && argc != 4) {
-        std::cerr << "\n"
-                  << "This program performs the forward opertion step for "
-                  << "Convolutional Neural Network(CNN).  "
-                  << "Sample usage: \n"
-                  << argv[0]
-                  << " [../data/test10.hdf5] [../data/model.hdf5] [10]\n";
-        return -1;
-    }
-    FLAGS_testdata = std::string(argv[1]);
-    FLAGS_model    = std::string(argv[2]);
-    if (argc == 3) {
-        const std::map<std::string, int> default_batch_sizes{
-            {"../data/test2.hdf5", 2},
-            {"../data/test10.hdf5", 10},
-            {"../data/test100.hdf5", 100},
-            {"../data/testfull.hdf5", 10000}};
-        const auto batch_size_in_map = default_batch_sizes.find(FLAGS_testdata);
-        if (batch_size_in_map == default_batch_sizes.end()) {
-            std::cerr << "\nERROR:: Unrecognized file " << FLAGS_testdata << " batch_size must be specified.\n";
-            return -1;
-        }
-        FLAGS_batch_size = batch_size_in_map->second;
-    } else if (argc == 4) {
-        FLAGS_batch_size = atoi(argv[3]);
-    }
-    xdims[0] = FLAGS_batch_size;
-    rdims[0] = FLAGS_batch_size;
-
     // Load data into x and y
     float *x = allocate<float>(xdims);
     float *y = allocate<float>(rdims);
-    loadData(x, y);
 
     // Load model
     float *conv1 = allocate<float>(conv1dims);
     float *conv2 = allocate<float>(conv2dims);
     float *fc1   = allocate<float>(fc1dims);
     float *fc2   = allocate<float>(fc2dims);
-    loadModel(conv1, conv2, fc1, fc2);
 
     // Perform foward opertion
     int *out = zeros<int>(FLAGS_batch_size);

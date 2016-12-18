@@ -12,17 +12,6 @@
 template <typename T>
 static bool check_success(const T &err);
 
-template <>
-bool check_success<herr_t>(const herr_t &err) {
-	  const auto res = err >= static_cast<herr_t>(0);
-	    if (res == true) {
-		        return res;
-			  }
-			    std::cout << "Failed in HDFS..." << std::endl;
-			      assert(res);
-			        return res;
-}
-
 template <typename T, size_t N>
 constexpr size_t array_size(const T (&)[N]) {
 	  return N;
