@@ -20,12 +20,21 @@ cmake $SRCDIR
 
 CMake will download the packages needed for this project (i.e., HDF5).  It will
 also generate a Makefile, enabling you to compile the project with "make."
-You can then run the compiled program as follows, where <number> should be
+Before doing this, however, open the CMakeLists.txt file and add the following lines:
+
+list(APPEND CUDA_NVCC_FLAGS -Xptxas --verbose)
+list(APPEND CUDA_NVCC_FLAGS -O3)
+
+Also, comment out the following line:
+set(CUDA_NVCC_FLAGS_DEBUG ${CUDA_NVCC_FLAGS_DEBUG} "-G")
+
+Then, after running make, you can then run the compiled program as follows, where <number> should be
 replaced with the batch size in question:
 
 ./ece408 ../data/test<number>.hdf5 ../data/model.hdf5 <number>
 
 If the build directory is already present, then the CMake step may be skipped; simply
-use "make" to compile the project.  Alternatively, you can use our conveniently
+use "make" to compile the project after modifying the CMakeLists.txt file
+as described above.  Alternatively, you can use our conveniently
 provided "run.sh" shell script, which will make clean, recompile, and then
 run the compiled program.
