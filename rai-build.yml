@@ -12,7 +12,9 @@ commands:
     - cmake -DCONFIG_USE_HUNTER=OFF /src
     - make
     - >-
-      nvprof --analysis-metrics --print-api-trace --cpu-profiling on
-      --demangling on --export-profile profile.nvvp
-      --force-overwrite --log-file run.log --print-gpu-trace
-      -- ./ece408 /src/data/testfull.hdf5 /src/data/model.hdf5 10000
+      nvprof --cpu-profiling on --export-profile timeline.nvprof --
+      ./ece408 /src/data/testfull.hdf5 /src/data/model.hdf5 10000
+    - >-
+      nvprof --cpu-profiling on --export-profile analysis.nvprof
+      --analysis-metrics -- 
+      ./ece408 /src/data/testfull.hdf5 /src/data/model.hdf5 10000
