@@ -1,115 +1,105 @@
 Index  % CPU Time:Total  CPU Time:Self  CPU Time:Children  Name                                             Index
 -----  ----------------  -------------  -----------------  -----------------------------------------------  -----
-                         0.0            925.120              _start                                         [2]  
-[1]    100.0             0.0            925.120            __libc_start_main                                [1]  
-                         0.0            925.120              main                                           [3]  
+                         0.0            923.531              _start                                         [2]  
+[1]    100.0             0.0            923.531            __libc_start_main                                [1]  
+                         0.0            923.531              main                                           [4]  
                                                                                                                  
                                                              <spontaneous>                                       
-[2]    100.0             0.0            925.120            _start                                           [2]  
-                         0.0            925.120              __libc_start_main                              [1]  
+[2]    100.0             0.0            923.531            _start                                           [2]  
+                         0.0            923.531              __libc_start_main                              [1]  
                                                                                                                  
-                         0.0            925.120              __libc_start_main                              [1]  
-[3]    100.0             0.0            925.120            main                                             [3]  
-                         0.010          0.0                  argmax                                         [19] 
-                         0.0            925.110              forward_operation                              [4]  
+                         0.0            923.531              main                                           [4]  
+[3]    100.0             0.0            923.531            forward_operation                                [3]  
+                         546.559        352.401              conv_forward_valid                             [5]  
+                         7.625          5.634                fully_forward                                  [15] 
+                         3.907          5.296                average_pool                                   [16] 
+                         1.250          0.849                relu4                                          [18] 
+                         0.010          0.0                  relu2                                          [19] 
                                                                                                                  
-                         0.0            925.110              main                                           [3]  
-[4]    100.0             0.0            925.110            forward_operation                                [4]  
-                         550.531        350.197              conv_forward_valid                             [5]  
-                         8.113          5.047                fully_forward                                  [15] 
-                         3.816          5.287                average_pool                                   [16] 
-                         1.180          0.919                relu4                                          [18] 
-                         0.010          0.0                  argmax                                         [19] 
-                         0.0            0.010                relu2                                          [20] 
+                         0.0            923.531              __libc_start_main                              [1]  
+[4]    100.0             0.0            923.531            main                                             [4]  
+                         0.0            923.531              forward_operation                              [3]  
                                                                                                                  
-                         550.531        350.197              forward_operation                              [4]  
-[5]    97.36             550.531        350.197            conv_forward_valid                               [5]  
-                         69.718         69.823               detail::range_iter_base<int>::operator!=       [6]  
-                         55.524         0.0                  detail::range_iter_base<int>::operator++       [10] 
-                         37.648         62.605               range<int>                                     [7]  
-                         27.500         0.0                  detail::range_iter_base<int>::operator*        [13] 
-                         20.031         0.0                  range_proxy<int>::begin                        [14] 
-                         7.348          0.0                  range_proxy<int>::end                          [17] 
+                         546.559        352.401              forward_operation                              [3]  
+[5]    97.34             546.559        352.401            conv_forward_valid                               [5]  
+                         69.070         69.221               detail::range_iter_base<int>::operator!=       [6]  
+                         56.433         0.0                  detail::range_iter_base<int>::operator++       [10] 
+                         37.449         64.316               range<int>                                     [7]  
+                         28.216         0.0                  detail::range_iter_base<int>::operator*        [13] 
+                         21.104         0.0                  range_proxy<int>::begin                        [14] 
+                         6.593          0.0                  range_proxy<int>::end                          [17] 
                                                                                                                  
-                         0.220          0.300                relu4                                          [18] 
-                         0.859          0.790                average_pool                                   [16] 
-                         1.600          1.477                fully_forward                                  [15] 
-                         69.718         69.823               conv_forward_valid                             [5]  
-[6]    15.65             72.397         72.390             detail::range_iter_base<int>::operator!=         [6]  
-                         72.390         0.0                  detail::range_iter_base<int>::operator==       [8]  
+                         0.300          0.309                relu4                                          [18] 
+                         0.920          0.799                average_pool                                   [16] 
+                         1.698          1.628                fully_forward                                  [15] 
+                         69.070         69.221               conv_forward_valid                             [5]  
+[6]    15.59             71.987         71.957             detail::range_iter_base<int>::operator!=         [6]  
+                         71.957         0.0                  detail::range_iter_base<int>::operator==       [8]  
                                                                                                                  
-                         0.010          0.0                  fully_forward                                  [15] 
-                         0.910          1.479                average_pool                                   [16] 
-                         37.648         62.605               conv_forward_valid                             [5]  
-[7]    11.1              38.568         64.084             range<int>                                       [7]  
-                         12.189         51.896               range_proxy<int>::range_proxy                  [9]  
+                         0.010          0.030                fully_forward                                  [15] 
+                         0.939          1.379                average_pool                                   [16] 
+                         37.449         64.316               conv_forward_valid                             [5]  
+[7]    11.27             38.398         65.725             range<int>                                       [7]  
+                         11.570         54.155               range_proxy<int>::range_proxy                  [9]  
                                                                                                                  
-                         72.390         0.0                  detail::range_iter_base<int>::operator!=       [6]  
-[8]    7.82              72.390         0.0                detail::range_iter_base<int>::operator==         [8]  
+                         71.957         0.0                  detail::range_iter_base<int>::operator!=       [6]  
+[8]    7.79              71.957         0.0                detail::range_iter_base<int>::operator==         [8]  
                                                                                                                  
-                         12.189         51.896               range<int>                                     [7]  
-[9]    6.93              12.189         51.896             range_proxy<int>::range_proxy                    [9]  
-                         16.530         35.366               range_proxy<int>::iter::iter                   [11] 
+                         11.570         54.155               range<int>                                     [7]  
+[9]    7.12              11.570         54.155             range_proxy<int>::range_proxy                    [9]  
+                         17.508         36.647               range_proxy<int>::iter::iter                   [11] 
                                                                                                                  
-                         0.240          0.0                  relu4                                          [18] 
-                         0.350          0.0                  average_pool                                   [16] 
-                         1.120          0.0                  fully_forward                                  [15] 
-                         55.524         0.0                  conv_forward_valid                             [5]  
-[10]   6.19              57.234         0.0                detail::range_iter_base<int>::operator++         [10] 
+                         0.190          0.0                  relu4                                          [18] 
+                         0.340          0.0                  average_pool                                   [16] 
+                         1.389          0.0                  fully_forward                                  [15] 
+                         56.433         0.0                  conv_forward_valid                             [5]  
+[10]   6.32              58.352         0.0                detail::range_iter_base<int>::operator++         [10] 
                                                                                                                  
-                         16.530         35.366               range_proxy<int>::range_proxy                  [9]  
-[11]   5.61              16.530         35.366             range_proxy<int>::iter::iter                     [11] 
-                         35.366         0.0                  detail::range_iter_base<int>::range_iter_base  [12] 
+                         17.508         36.647               range_proxy<int>::range_proxy                  [9]  
+[11]   5.86              17.508         36.647             range_proxy<int>::iter::iter                     [11] 
+                         36.647         0.0                  detail::range_iter_base<int>::range_iter_base  [12] 
                                                                                                                  
-                         35.366         0.0                  range_proxy<int>::iter::iter                   [11] 
-[12]   3.82              35.366         0.0                detail::range_iter_base<int>::range_iter_base    [12] 
+                         36.647         0.0                  range_proxy<int>::iter::iter                   [11] 
+[12]   3.97              36.647         0.0                detail::range_iter_base<int>::range_iter_base    [12] 
                                                                                                                  
-                         0.010          0.0                  relu2                                          [20] 
-                         0.159          0.0                  relu4                                          [18] 
-                         0.180          0.0                  average_pool                                   [16] 
-                         0.830          0.0                  fully_forward                                  [15] 
-                         27.500         0.0                  conv_forward_valid                             [5]  
-[13]   3.1               28.679         0.0                detail::range_iter_base<int>::operator*          [13] 
+                         0.050          0.0                  relu4                                          [18] 
+                         0.229          0.0                  average_pool                                   [16] 
+                         0.879          0.0                  fully_forward                                  [15] 
+                         28.216         0.0                  conv_forward_valid                             [5]  
+[13]   3.18              29.374         0.0                detail::range_iter_base<int>::operator*          [13] 
                                                                                                                  
-                         0.010          0.0                  fully_forward                                  [15] 
-                         0.580          0.0                  average_pool                                   [16] 
-                         20.031         0.0                  conv_forward_valid                             [5]  
-[14]   2.23              20.620         0.0                range_proxy<int>::begin                          [14] 
+                         0.520          0.0                  average_pool                                   [16] 
+                         21.104         0.0                  conv_forward_valid                             [5]  
+[14]   2.34              21.624         0.0                range_proxy<int>::begin                          [14] 
                                                                                                                  
-                         8.113          5.047                forward_operation                              [4]  
-[15]   1.42              8.113          5.047              fully_forward                                    [15] 
-                         1.600          1.477                detail::range_iter_base<int>::operator!=       [6]  
-                         1.120          0.0                  detail::range_iter_base<int>::operator++       [10] 
-                         0.830          0.0                  detail::range_iter_base<int>::operator*        [13] 
-                         0.010          0.0                  range_proxy<int>::begin                        [14] 
-                         0.010          0.0                  range<int>                                     [7]  
+                         7.625          5.634                forward_operation                              [3]  
+[15]   1.44              7.625          5.634              fully_forward                                    [15] 
+                         1.698          1.628                detail::range_iter_base<int>::operator!=       [6]  
+                         1.389          0.0                  detail::range_iter_base<int>::operator++       [10] 
+                         0.879          0.0                  detail::range_iter_base<int>::operator*        [13] 
+                         0.010          0.030                range<int>                                     [7]  
                                                                                                                  
-                         3.816          5.287                forward_operation                              [4]  
-[16]   0.98              3.816          5.287              average_pool                                     [16] 
-                         0.910          1.479                range<int>                                     [7]  
-                         0.859          0.790                detail::range_iter_base<int>::operator!=       [6]  
-                         0.580          0.0                  range_proxy<int>::begin                        [14] 
-                         0.350          0.0                  detail::range_iter_base<int>::operator++       [10] 
-                         0.180          0.0                  detail::range_iter_base<int>::operator*        [13] 
-                         0.140          0.0                  range_proxy<int>::end                          [17] 
+                         3.907          5.296                forward_operation                              [3]  
+[16]   1.0               3.907          5.296              average_pool                                     [16] 
+                         0.939          1.379                range<int>                                     [7]  
+                         0.920          0.799                detail::range_iter_base<int>::operator!=       [6]  
+                         0.520          0.0                  range_proxy<int>::begin                        [14] 
+                         0.340          0.0                  detail::range_iter_base<int>::operator++       [10] 
+                         0.229          0.0                  detail::range_iter_base<int>::operator*        [13] 
+                         0.170          0.0                  range_proxy<int>::end                          [17] 
                                                                                                                  
-                         0.140          0.0                  average_pool                                   [16] 
-                         7.348          0.0                  conv_forward_valid                             [5]  
-[17]   0.81              7.488          0.0                range_proxy<int>::end                            [17] 
+                         0.170          0.0                  average_pool                                   [16] 
+                         6.593          0.0                  conv_forward_valid                             [5]  
+[17]   0.73              6.763          0.0                range_proxy<int>::end                            [17] 
                                                                                                                  
-                         1.180          0.919                forward_operation                              [4]  
-[18]   0.23              1.180          0.919              relu4                                            [18] 
-                         0.240          0.0                  detail::range_iter_base<int>::operator++       [10] 
-                         0.220          0.300                detail::range_iter_base<int>::operator!=       [6]  
-                         0.159          0.0                  detail::range_iter_base<int>::operator*        [13] 
+                         1.250          0.849                forward_operation                              [3]  
+[18]   0.23              1.250          0.849              relu4                                            [18] 
+                         0.300          0.309                detail::range_iter_base<int>::operator!=       [6]  
+                         0.190          0.0                  detail::range_iter_base<int>::operator++       [10] 
+                         0.050          0.0                  detail::range_iter_base<int>::operator*        [13] 
                                                                                                                  
-                         0.010          0.0                  forward_operation                              [4]  
-                         0.010          0.0                  main                                           [3]  
-[19]   0.0               0.020          0.0                argmax                                           [19] 
-                                                                                                                 
-                         0.0            0.010                forward_operation                              [4]  
-[20]   0.0               0.0            0.010              relu2                                            [20] 
-                         0.010          0.0                  detail::range_iter_base<int>::operator*        [13] 
+                         0.010          0.0                  forward_operation                              [3]  
+[19]   0.0               0.010          0.0                relu2                                            [19] 
                                                                                                                  
 
 
@@ -119,7 +109,6 @@ Index  Function
 -----  ---------------------------------------------
 [1]    __libc_start_main                            
 [2]    _start                                       
-[19]   argmax                                       
 [16]   average_pool                                 
 [5]    conv_forward_valid                           
 [6]    detail::range_iter_base<int>::operator!=     
@@ -127,13 +116,13 @@ Index  Function
 [10]   detail::range_iter_base<int>::operator++     
 [8]    detail::range_iter_base<int>::operator==     
 [12]   detail::range_iter_base<int>::range_iter_base
-[4]    forward_operation                            
+[3]    forward_operation                            
 [15]   fully_forward                                
-[3]    main                                         
+[4]    main                                         
 [7]    range<int>                                   
 [14]   range_proxy<int>::begin                      
 [17]   range_proxy<int>::end                        
 [11]   range_proxy<int>::iter::iter                 
 [9]    range_proxy<int>::range_proxy                
-[20]   relu2                                        
+[19]   relu2                                        
 [18]   relu4                                        
