@@ -72,7 +72,7 @@ set(generated_cubin_file_internal "/build/CMakeFiles/ece408.dir/src/./ece408_gen
 set(CUDA_NVCC_EXECUTABLE "/usr/local/cuda/bin/nvcc") # path
 set(CUDA_NVCC_FLAGS -gencode;arch=compute_30,code=sm_30;-gencode;arch=compute_35,code=sm_35;-gencode;arch=compute_50,code=sm_50;-gencode;arch=compute_52,code=sm_52;-gencode;arch=compute_61,code=sm_61;-gencode;arch=compute_35,code=compute_35;-Xptxas;--verbose;-O3 ;; ) # list
 # Build specific configuration flags
-set(CUDA_NVCC_FLAGS_DEBUG  ; )
+set(CUDA_NVCC_FLAGS_DEBUG -G ; )
 set(CUDA_NVCC_FLAGS_MINSIZEREL  ; )
 set(CUDA_NVCC_FLAGS_RELEASE  ; )
 set(CUDA_NVCC_FLAGS_RELWITHDEBINFO  ; )
