@@ -11,4 +11,10 @@ commands:
     - echo "Building project"
     - cmake -DCONFIG_USE_HUNTER=OFF /src
     - make
-    - ./ece408 /src/data/testfull.hdf5 /src/data/model.hdf5 10000
+    - >-
+      nvprof --cpu-profiling on --export-profile timeline.nvprof --
+      ./ece408 /src/data/testfull.hdf5 /src/data/model.hdf5 10000
+    - >-
+      nvprof --cpu-profiling on --export-profile analysis.nvprof
+      --analysis-metrics -- 
+      ./ece408 /src/data/testfull.hdf5 /src/data/model.hdf5 10000
