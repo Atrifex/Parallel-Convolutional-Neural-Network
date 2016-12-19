@@ -1,0 +1,17 @@
+-r
+/mnt/lustre/ISL/rrthakk2/CNN/Parallel-Convolutional-Neural-Network/profile/r001hs
+--stack-stitching
+--data-limit-mb=500
+--follow-child
+--itt-config=frame
+--stackwalk=offline
+--mrte-mode=auto
+--mrte-type=java
+--type=cpu:counters:nostack
+--type=cpu:stack
+--interval=10
+--
+./SeqCNN
+../data/testfull.hdf5
+../data/model.hdf5
+10000

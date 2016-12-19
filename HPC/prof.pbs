@@ -1,0 +1,18 @@
+
+# 		INITIAL SET UP
+#PBS -V
+#PBS -N CNN
+
+
+#		RESOURCES
+#PBS -l walltime=99:00:00
+#PBS -l nodes=1:ppn=1
+
+cd /home/rrthakk2/lustre/CNN/Parallel-Convolutional-Neural-Network/src
+make
+cd ../profile
+rm -rf *
+cp ../src/SeqCNN ./
+
+amplxe-cl -collect hotspots -result-dir r001hs ./SeqCNN ../data/testfull.hdf5 ../data/model.hdf5 10000
+amplxe-cl -report gprof-cc -r r001hs > report.txt

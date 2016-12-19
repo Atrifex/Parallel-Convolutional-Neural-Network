@@ -1,0 +1,61 @@
+Prologue Args:
+Job ID: 4324.nano
+User ID: rrthakk2
+Group ID: ISL
+---------------------------
+
+clang++ main.cpp -std=c++1y -stdlib=libc++ -lc++abi -lpthread -o SeqCNN -g
+Done with 10000 queries in elapsed = 925118 milliseconds. Correctness: 1
+
+Collection and Platform Info
+----------------------------
+Parameter                 r001hs                                                                                                                                                                                                                                                                                                                                                                                                                                    
+------------------------  ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Application Command Line  ./SeqCNN "../data/testfull.hdf5" "../data/model.hdf5" "10000"                                                                                                                                                                                                                                                                                                                                                                             
+Operating System          3.10.0-327.10.1.el7_lustre.x86_64 NAME="CentOS Linux"
+VERSION="7 (Core)"
+ID="centos"
+ID_LIKE="rhel fedora"
+VERSION_ID="7"
+PRETTY_NAME="CentOS Linux 7 (Core)"
+ANSI_COLOR="0;31"
+CPE_NAME="cpe:/o:centos:centos:7"
+HOME_URL="https://www.centos.org/"
+BUG_REPORT_URL="https://bugs.centos.org/"
+
+CENTOS_MANTISBT_PROJECT="CentOS-7"
+CENTOS_MANTISBT_PROJECT_VERSION="7"
+REDHAT_SUPPORT_PRODUCT="centos"
+REDHAT_SUPPORT_PRODUCT_VERSION="7"
+
+Computer Name             nano1                                                                                                                                                                                                                                                                                                                                                                                                                                     
+Result Size               19932942                                                                                                                                                                                                                                                                                                                                                                                                                                  
+Collection start time     00:02:21 19/12/2016 UTC                                                                                                                                                                                                                                                                                                                                                                                                                   
+Collection stop time      00:17:46 19/12/2016 UTC                                                                                                                                                                                                                                                                                                                                                                                                                   
+
+CPU
+---
+Parameter          r001hs                             
+-----------------  -----------------------------------
+Name               Intel(R) Xeon(R) E5/E7 v3 processor
+Frequency          2399999400                         
+Logical CPU Count  24                                 
+
+Summary
+-------
+Elapsed Time:       925.125
+CPU Time:           925.120
+Average CPU Usage:  1.000  
+
+---------------------------
+Epilogue Args:
+Job ID: 4324.nano
+User ID: rrthakk2
+Group ID: ISL
+Job Name: CNN
+Session ID: 13814
+Resource List: neednodes=1:ppn=1,nodes=1:ppn=1,walltime=99:00:00
+Resources Used: cput=00:15:38,energy_used=0,mem=1229760kb,vmem=3035088kb,walltime=00:15:34
+Queue Name: batch
+Account String: 
+
