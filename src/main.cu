@@ -256,8 +256,6 @@ __global__ void unroll_gpu(int C, int H, int W, int K, float* X, float* X_unroll
 
   if (t < C * W_unroll)
   {
-    //c = t / W_unroll;
-    //s = t % W_unroll;
     c = t % C; // Idea: change thread-to-element mapping to get coalesced memory access
     s = t/C;
     h_out = s/W_out;
@@ -447,6 +445,7 @@ void convLayer_forward_reg(int N, int M, int C, int H, int W, int K, float* Mask
 
 
 // CUDA kernel for average pool
+// Uses standard mapping: one thread per output element
 __global__ void average_pool_kernel(float *X, float *Y, int xdims_1, int xdims_2, int xdims_3, int ydims_1, int ydims_2, int ydims_3, int pool_size, int n) {
 
     int m, h, w;
@@ -635,8 +634,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     convLayer_forward_streamed(xdims[0], conv1dims[3], conv1dims[2], xdims[1], xdims[2], conv1dims[0], x, conv1, deviceOutputConv1, adims, device_X0_L1, device_X1_L1, device_X2_L1, device_X_unrolled0_L1, device_X_unrolled1_L1, device_X_unrolled2_L1, device_W_L1, device_W_unrolled_L1, device_Y_unrolled_L1);
 
     // relu
-    dim3 blockDimRELU1(1024, 1, 1);
-    dim3 gridDimRELU1((adims[0]*adims[1]*adims[2]*adims[3] - 1)/1024 + 1 , 1, 1);
+    dim3 blockDimRELU1(CUDA_MAX_NUM_THREADS, 1, 1);
+    dim3 gridDimRELU1((adims[0]*adims[1]*adims[2]*adims[3] - 1)/CUDA_MAX_NUM_THREADS + 1 , 1, 1);
     relu_gpu<<<gridDimRELU1, blockDimRELU1>>>(deviceOutputConv1, adims[0]*adims[1]*adims[2]*adims[3]);
     cudaDeviceSynchronize();
 
@@ -661,8 +660,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     convLayer_forward_reg(xdims[0], conv2dims[3], conv2dims[2], bdims[1], bdims[2], conv2dims[0], conv2, deviceOutputConv2, cdims, device_X_L2, device_X_unrolled0_L2, device_X_unrolled1_L2, device_X_unrolled2_L2, device_W_L2,  device_W_unrolled_L2, device_Y_unrolled_L2);
 
     // relu
-    dim3 blockDimRELU2(1024, 1, 1);
-    dim3 gridDimRELU2((cdims[0]*cdims[1]*cdims[2]*cdims[3] - 1)/1024 + 1 , 1, 1);
+    dim3 blockDimRELU2(CUDA_MAX_NUM_THREADS, 1, 1);
+    dim3 gridDimRELU2((cdims[0]*cdims[1]*cdims[2]*cdims[3] - 1)/CUDA_MAX_NUM_THREADS + 1 , 1, 1);
     relu_gpu<<<gridDimRELU2, blockDimRELU2>>>(deviceOutputConv2, cdims[0]*cdims[1]*cdims[2]*cdims[3]);
     cudaDeviceSynchronize();
 
@@ -701,8 +700,8 @@ void forward_operation(float *x, float *conv1, float *conv2, float *fc1,
     cudaFree(deviceMaskFullyForward1);
 
     // relu
-    dim3 blockDimRELU3(1024, 1, 1);
-    dim3 gridDimRELU3((edims[0]*edims[1] - 1)/1024 + 1 , 1, 1);
+    dim3 blockDimRELU3(CUDA_MAX_NUM_THREADS, 1, 1);
+    dim3 gridDimRELU3((edims[0]*edims[1] - 1)/CUDA_MAX_NUM_THREADS + 1 , 1, 1);
     relu_gpu<<<gridDimRELU3, blockDimRELU3>>>(deviceOutputFullyForward1,  edims[0]*edims[1]);
     cudaDeviceSynchronize();
 
