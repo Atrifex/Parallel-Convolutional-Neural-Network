@@ -89,7 +89,7 @@ if (UNIX)
 endif (UNIX)
 
 # Add debugging to CUDA NVCC flags (for NVidia's NSight tools)
-set(CUDA_NVCC_FLAGS_DEBUG ${CUDA_NVCC_FLAGS_DEBUG} "-G")
+# set(CUDA_NVCC_FLAGS_DEBUG ${CUDA_NVCC_FLAGS_DEBUG} "-G")
 
 # GOTTA GO FAST
 list(APPEND CUDA_NVCC_FLAGS -Xptxas --verbose)
