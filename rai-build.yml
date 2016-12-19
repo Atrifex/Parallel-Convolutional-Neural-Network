@@ -9,22 +9,6 @@ resources:
 commands:
   build:
     - echo "Building project"
-    # Since the system already contains the dependencies (like HDF5 and ZLib) we do not
-    # need the hunter package manager. This speeds up the compilation as well
     - cmake -DCONFIG_USE_HUNTER=OFF /src
-    # Run the make file to compile the project.
     - make
-    # here we break the long command into multiple lines. The Yaml
-    # format supports this using a block-strip command. See
-    # http://stackoverflow.com/a/21699210/3543720 for info
-    # - >-
-    #   nvprof --analysis-metrics --print-api-trace --cpu-profiling on
-    #   --demangling on --export-profile profile.nvvp
-    #   --force-overwrite --log-file run.log --print-gpu-trace
-    #   -- ./ece408 /src/data/test10.hdf5 /src/data/model.hdf5 10
-    # - >-
-    #   nvprof --cpu-profiling on --export-profile timeline.nvprof --
-    #   ./ece408 /src/data/test10.hdf5 /src/data/model.hdf5 10
-    # - >-
-    #   nvprof --cpu-profiling on --export-profile analysis.nvprof --analysis-metrics --
-    - ./ece408 /src/data/test10.hdf5 /src/data/model.hdf5 10
+    - ./ece408 /src/data/testfull.hdf5 /src/data/model.hdf5 10000
